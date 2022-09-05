@@ -8,12 +8,11 @@
 #include <time.h>
 
 int getPixelValue(int rows, int columns, int COLS, unsigned char* image);
-// int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols);
-void readImage(unsigned char* destination, int* ROWS, int* COLS, char* source);
-unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage);
-void separableFilter(void);
-void slidingWindow(void);
+unsigned char* readImage( int* ROWS, int* COLS, char* source);
 unsigned char* createImage(int size);
+unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage);
+unsigned char* runSeparableFilter(int ROWS, int COLS, int filterSize, unsigned char* sourceImage);
+unsigned char* runSlidingWindow(int ROWS, int COLS, int filterSize, unsigned char* sourceImage);
 
 clock_t start, end;
 double time_spent = 0.0;
@@ -22,7 +21,7 @@ int main(int argc, char* argv[])
 {
     unsigned char *sourceImage, *convolutionImage, *separableImage, *slidingImage;
     char header[320];
-    int filterSize = 0, ROWS, COLS, BYTES, readHeaderReturn;
+    int filterSize = 0, ROWS, COLS;
     FILE *fpt;
 
     // Ensure that the provided CLA are correct and check if the optional filter size is provided
@@ -53,8 +52,8 @@ int main(int argc, char* argv[])
     }
 
     // Once we've allocated space for our image data we can read it in
-    readImage(sourceImage, &ROWS, &COLS, argv[1]);
-    
+    sourceImage = readImage(&ROWS, &COLS, argv[1]);
+
     /// ----------------------------
     ///  Perform the 2D Convolution
     /// ----------------------------
@@ -67,7 +66,30 @@ int main(int argc, char* argv[])
     fclose(fpt);
 
     /// ----------------------------
+    ///     Run Separable Filter
+    /// ----------------------------
+    separableImage = runSeparableFilter(ROWS, COLS, filterSize, sourceImage);
 
+    // Export image to file
+    fpt = fopen("separableFilter.ppm", "w");
+    fprintf(fpt, "P5 %d %d 255\n", COLS, ROWS);
+    fwrite(separableImage, COLS * ROWS, 1, fpt);
+    fclose(fpt);
+
+    /// ----------------------------
+    ///     Run Sliding Window
+    /// ----------------------------
+    //slidingImage = runSlidingWindow(ROWS, COLS, filterSize, sourceImage);
+
+    //// Export image to file
+    //fpt = fopen("slidingWindow.ppm", "w");
+    //fprintf(fpt, "P5 %d %d 255\n", COLS, ROWS);
+    //fwrite(slidingImage, COLS * ROWS, 1, fpt);
+    //fclose(fpt);
+
+    /// ----------------------------
+
+    // TODO: Perform DIFF on the three image files. [Aaron, 9/5/2022]
 }
 
 unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
@@ -84,16 +106,15 @@ unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char*
 
         for (int r = filterSize; r < ROWS - filterSize; r++)
         {
-            for (int c = filterSize; c < COLS - filterSize; c++)
+            for (int c = filterSize; c < COLS - filterSize; c++, average = 0)
             {
-                average = 0;
                 for (int row = -filterSize; row <= filterSize; row++)
                 {
                     for (int column = -filterSize; column <= filterSize; column++) {
                         average = average + getPixelValue(r + row, c + column, COLS, sourceImage);
                     }
                 }
-                convolutionImage[r * COLS + c] = average / ((filterSize*2+1)*(filterSize*2+1));
+                convolutionImage[r * COLS + c] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
             }
         }
         clock_gettime(CLOCK_REALTIME, &end);
@@ -105,44 +126,102 @@ unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char*
     return convolutionImage;
 }
 
-void separableFilter(void)
+unsigned char* runSeparableFilter(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
 {
+    int average = 0;
+    long int timeSpent = 0.0;
+    struct timespec	start, end;
+    //unsigned char * separableImageRow = (unsigned char *)calloc(ROWS * COLS, sizeof(unsigned char
+    //              --------------------------------------------------------
+    // We cannot use unsigned char* because the average we're storing can be values that are greater than 255
+    int * separableImageRow = (int *)calloc(ROWS * COLS, sizeof(int));
+    unsigned char * separableImageCol = createImage(ROWS * COLS);
+    if (separableImageRow == NULL) {
+        printf("Unable to allocate %d bytes of memory for separableImageRow.\n", ROWS * COLS);
+        exit(0);
+    }
 
+    // Run 10 times so we can get an average time over 10 iterations
+    for (int i = 0; i < 10; i++)
+    {
+        if (i == 0) printf("Performing Separable Filter\nTime Spend for 10 iterations: ");
+        clock_gettime(CLOCK_REALTIME, &start);
+
+        // Generate an image with averages of the horizontal rows
+        for (int imageRow = 0; imageRow < ROWS; imageRow++)
+        {
+            for (int imageColumn = filterSize; imageColumn < COLS-filterSize; imageColumn++, average = 0)
+            {
+                for (int filterColumn = -filterSize; filterColumn <= filterSize; filterColumn++) {
+                    average = average + sourceImage[(imageColumn + filterColumn) + imageRow * COLS];
+                }
+                separableImageRow[imageRow * COLS + imageColumn] = average;
+            }
+        }
+
+        // This is essentially the normal 2D convolution since the rows are already averaged
+        // However, instead of needing to average the rows we only need to worry about the columns
+        for (int imageRow = filterSize; imageRow < ROWS - filterSize; imageRow++)
+        {
+            for (int imageColumn = 0; imageColumn < COLS; imageColumn++, average = 0)
+            {
+                for (int filterRow = -filterSize; filterRow <= filterSize; filterRow++) {
+                    average = average + separableImageRow[imageColumn + (imageRow + filterRow) * COLS];
+                }
+                separableImageCol[imageRow * COLS + imageColumn] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
+            }
+        }
+
+        clock_gettime(CLOCK_REALTIME, &end);
+        printf(" [#%d](%ld %ld) |", i + 1, (long int)end.tv_sec, end.tv_nsec);
+        timeSpent += end.tv_nsec - start.tv_nsec;
+    }
+    printf("\nAverage time spent performing Separable Filter : %ld ns\n", (timeSpent / 10) < 0 ? -(timeSpent / 10) : timeSpent / 10);
+
+    return separableImageCol;
 }
 
-void slidingWindow(void)
+unsigned char* runSlidingWindow(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
 {
+    int average = 0;
+    long int timeSpent = 0.0;
+    struct timespec	start, end;
+    unsigned char* convolutionImage = createImage(ROWS * COLS);
 
+    for (int i = 0; i < 10; i++)
+    {
+        if (i == 0) printf("Performing 2D Convolution\nTime Spend for 10 iterations: ");
+        clock_gettime(CLOCK_REALTIME, &start);
+
+        for (int r = filterSize; r < ROWS - filterSize; r++)
+        {
+            for (int c = filterSize; c < COLS - filterSize; c++)
+            {
+                average = 0;
+                for (int row = -filterSize; row <= filterSize; row++)
+                {
+                    for (int column = -filterSize; column <= filterSize; column++) {
+                        average = average + getPixelValue(r + row, c + column, COLS, sourceImage);
+                    }
+                }
+                convolutionImage[r * COLS + c] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
+            }
+        }
+        clock_gettime(CLOCK_REALTIME, &end);
+        printf(" [#%d](%ld %ld) |", i + 1, (long int)end.tv_sec, end.tv_nsec);
+        timeSpent += end.tv_nsec - start.tv_nsec;
+    }
+    printf("\nAverage time spent performing 2D Convolution : %ld ns\n", (timeSpent / 10) < 0 ? -(timeSpent / 10) : timeSpent / 10);
+
+    return convolutionImage;
 }
 
 int getPixelValue(int rows, int columns, int COLS, unsigned char* image) 
 {
-    //if (DEBUG) printf("DEBUG: IN getPixelValue\n");
     return image[columns + rows * COLS];
 }
 
-// int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols)
-// {
-//     static char header[80];
-//     int BYTES;
-//
-//     /* open image for reading */
-//     FILE *fpt = fopen(imageFile, "r");
-//     if (fpt == NULL) {
-//         return 1;
-//     }
-//     
-//     /* read image header (simple 8-bit greyscale PPM only) */
-//    if (fscanf(fpt, "%s %d %d %d\n", header, &(*numberOfCols), &(*numberOfRows), &BYTES) != 4 || strcmp(header, "P5") != 0 || BYTES != 255)
-//    {
-//        fclose(fpt);
-//        return 2;
-//    }
-//    return 0;
-// }
-
-
-void readImage(unsigned char* destination, int* ROWS, int* COLS, char* source)
+unsigned char* readImage(int* ROWS, int* COLS, char* source)
 {
     int BYTES, readHeaderReturn;
     static char header[80];
@@ -155,17 +234,19 @@ void readImage(unsigned char* destination, int* ROWS, int* COLS, char* source)
     }
     
     /* read image header (simple 8-bit greyscale PPM only) */
-    if (fscanf(fpt, "%s %d %d %d\n", header, &(*COLS), &(*ROWS), &BYTES) != 4 || strcmp(header, "P5") != 0 || BYTES != 255)
+    if (fscanf(fpt, "%s %d %d %d\n", header, &*COLS, &*ROWS, &BYTES) != 4 || strcmp(header, "P5") != 0 || BYTES != 255)
     {
         fclose(fpt);
         printf("Image header corrupted.\n");
         exit(0);
     }
-
-    destination = createImage((*ROWS)*(*COLS)); // Create an empty image that is large enough for ROWS x COLS bytes
+    
+    unsigned char* destination = createImage((*ROWS)*(*COLS)); // Create an empty image that is large enough for ROWS x COLS bytes
     
     fread(destination, 1, (*ROWS) * (*COLS), fpt);
     fclose(fpt);
+
+    return destination;
 }
 
 unsigned char* createImage(int size)
