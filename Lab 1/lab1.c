@@ -9,7 +9,7 @@
 
 int getPixelValue(int rows, int columns, int COLS, unsigned char* image);
 // int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols);
-void readImage(unsigned char** destination, int* ROWS, int* COLS, char* source);
+void readImage(unsigned char* destination, int* ROWS, int* COLS, char* source);
 unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage);
 void separableFilter(void);
 void slidingWindow(void);
@@ -58,7 +58,7 @@ int main(int argc, char* argv[])
     /// ----------------------------
     ///  Perform the 2D Convolution
     /// ----------------------------
-    convolutionImage = runConvolution(ROWS, COLS, filterSize, convolution);
+    convolutionImage = runConvolution(ROWS, COLS, filterSize, sourceImage);
 
     // Export image to file
     fpt = fopen("convolution.ppm", "w");
