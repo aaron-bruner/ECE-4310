@@ -5,99 +5,153 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 int getPixelValue(int rows, int columns, int COLS, unsigned char* image);
 int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols);
 void readImage(unsigned char** destination, int size, char* source);
+unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage);
+void separableFilter(void);
+void slidingWindow(void);
 unsigned char* createImage(int size);
-int solution(int r, int c, int COLS, unsigned char* image);
+
+clock_t start, end;
+double time_spent = 0.0;
 
 int main(int argc, char* argv[])
 {
-    unsigned char* image;
-    char header[80];
-    int filterSize = 0, ROWS, COLS, BYTES;
+    unsigned char *sourceImage, *convolutionImage, *separableImage, *slidingImage;
+    char header[320];
+    int filterSize = 0, ROWS, COLS, BYTES, readHeaderReturn;
+    FILE *fpt;
 
     // Ensure that the provided CLA are correct and check if the optional filter size is provided
-    if (argc < 4) {
-        printf("Usage: avg [filename.ppm] [r] [c] (-s) (odd filter size)\n\nExample: avg bridge.ppm 12 321 -s 3\n");
+    if (argc < 2) {
+        printf("Usage: avg [filename.ppm] (-s) (odd filter size)\n\nExample: avg bridge.ppm -s 3\n");
         exit(0);
     }
-    else if (argc >= 4) // Check to see if optional flags are available
+    else if (argc >= 2) // Check to see if optional flags are available
     {
-        if (argc == 6 && strcmp(argv[4], "-s") == 0) // User specified a filter specific filter size
+        if (argc == 4 && strcmp(argv[2], "-s") == 0) // User specified a filter specific filter size
         {
-            if (DEBUG) printf("User Specified filter value : %s\n", argv[5]);
-            if (atoi(argv[5]) % 2 != 0) // Odd
+            if (atoi(argv[3]) % 2 != 0) // Odd
             {
-                filterSize = atoi(argv[5]);
+                filterSize = atoi(argv[3]) / 2;
+                // We divide by two so that we have the filter size we need. An example is shown below:
+                // 0/2 = 0      3/2 = 1     5/2 = 2     7/2 = 3     and so on. Since they integers we don't get the decimals
             }
             else // Even
             {
                 printf("Error: Filter size must be an odd number.\n");
                 exit(0);
             }
-
-            //atoi(argv[5]) % 2 != 0 ? filterSize = atoi(argv[5]) : printf("Error: Invalid filter size\n"), exit(0);
         }
-        else // Unless they specify a filter size then we default to 3
+        else // Unless they specify a filter size then we default to 7x7
         {
             filterSize = 3;
         }
     }
 
-    // Read the provided image and validate that it's the correct format 
-    int returnMessage = readHeader(argv[1], &ROWS, &COLS);
-    if (returnMessage == 1)
+    //sourceImage = createImage(255*255);         // Create an empty image that is large enough for ROWS x COLS bytes
+    //readImage(&sourceImage, 255*255, argv[1]);  // Once we've allocated space for our image data we can read it in
+
+    //readHeaderReturn = readHeader(sourceImage, &ROWS, &COLS);
+    //if (readHeaderReturn == 1)     // Read the provided image and validate that it's the correct format 
+    //{
+    //    printf("Unable to open %s for reading\n", argv[1]);
+    //    exit(0);
+    //}
+    //else if (readHeaderReturn == 2)
+    //{
+    //    printf("The file [%s] is not an 8-bit PPM greyscale (P5) image\n", argv[1]);
+    //    exit(0);
+    //}
+    
+    // Open image for reading
+    fpt = fopen(argv[1], "rb");
+
+    if (fpt == NULL) 
     {
-        printf("Unable to open %s for reading\n", argv[1]);
+        printf("Failed to open file (%s) for reading.\n", argv[1]);
         exit(0);
     }
-    else if (returnMessage == 2)
+    
+    if (fscanf(fpt, "%s %d %d %d\n", header, &COLS, &ROWS, &BYTES) != 4 || strcmp(header, "P5") != 0 || BYTES != 255)
     {
-        printf("The file [%s] is not an 8-bit PPM greyscale (P5) image\n", argv[1]);
+        fclose(fpt);
         exit(0);
     }
+    
+    unsigned char* convolution = (unsigned char*)calloc(ROWS*COLS, sizeof(unsigned char));
+    fread(convolution, 1, ROWS * COLS, fpt);
+    fclose(fpt);
+    
+    /// ----------------------------
+    ///  Perform the 2D Convolution
+    /// ----------------------------
+    filterSize = 3;
+    convolutionImage = runConvolution(ROWS, COLS, filterSize, convolution);
 
-    // Validate that the CLA for ROW and COL are inside of the image size
-    int rowCLA = atoi(argv[2]);
-    int colCLA = atoi(argv[3]);
+    fpt = fopen("convolution.ppm", "w");
+    fprintf(fpt, "P5 %d %d 255\n", COLS, ROWS);
+    fwrite(convolutionImage, COLS * ROWS, 1, fpt);
+    fclose(fpt);
 
-    if (rowCLA < 0 || rowCLA > ROWS) {
-        printf("The provided value (%d) is outside of the valid range (0 to %d)\n", rowCLA, ROWS);
-        exit(0);
-    }
-    else if (colCLA < 0 || colCLA > COLS) {
-        printf("The provided value (%d) is outside of the valid range (0 to %d)\n", colCLA, COLS);
-        exit(0);
-    }
+}
 
-    // Create an empty image that is large enough for ROWS x COLS bytes
-    image = createImage(ROWS * COLS);
-
-    // Once we've allocated space for our image data we can read it in
-    readImage(&image, ROWS * COLS, argv[1]);
-
+unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
+{
     int average = 0;
-    /* Determine the average of a 3x3 matrix at pixel [row,column] */
-    for (int row = -1; row <= 1; row++)
-        for (int column = -1; column <= 1; column++) {
-            average = average + getPixelValue(row + rowCLA, column + colCLA, COLS, image);
-            if (DEBUG) printf("PROCESS - Pixel value for dr(%d) dc(%d) = %d\n", row, column, getPixelValue(row + rowCLA, column + colCLA, COLS, image));
+    long int timeSpent = 0.0;
+    struct timespec	start, end;
+    unsigned char* convolutionImage = createImage(ROWS*COLS);
+    
+    for (int i = 0; i < 10; i++)
+    {
+        if (i==0) printf("Performing 2D Convolution\nTime Spend for 10 iterations: ");
+        clock_gettime(CLOCK_REALTIME, &start);
+
+        for (int r = filterSize; r < ROWS - filterSize; r++)
+        {
+            for (int c = filterSize; c < COLS - filterSize; c++)
+            {
+                average = 0;
+                for (int row = -filterSize; row <= filterSize; row++)
+                {
+                    for (int column = -filterSize; column <= filterSize; column++) {
+                        average = average + getPixelValue(r + row, c + column, COLS, sourceImage);
+                    }
+                }
+                convolutionImage[r * COLS + c] = average / ((filterSize*2+1)*(filterSize*2+1));
+            }
         }
-    printf("The average (3x3) at [%d,%d] is = %d\n", rowCLA, colCLA, average / 9);
-    printf("The solution is %d\n", solution(rowCLA, colCLA, COLS, image));
+        clock_gettime(CLOCK_REALTIME, &end);
+        printf(" [#%d](%ld %ld) |", i+1, (long int)end.tv_sec, end.tv_nsec);
+        timeSpent += end.tv_nsec - start.tv_nsec;
+    }
+    printf("\nAverage time spent performing 2D Convolution : %ld ns\n", (timeSpent/10) < 0 ? -(timeSpent/10) : timeSpent/10);
+
+    return convolutionImage;
+}
+
+void separableFilter(void)
+{
+
+}
+
+void slidingWindow(void)
+{
+
 }
 
 int getPixelValue(int rows, int columns, int COLS, unsigned char* image) 
 {
-    if (DEBUG) printf("DEBUG: IN getPixelValue\n");
+    //if (DEBUG) printf("DEBUG: IN getPixelValue\n");
     return image[columns + rows * COLS];
 }
 
 int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols)
 {
-    if (DEBUG) printf("DEBUG: IN readHeader\n");
     static char header[80];
     int BYTES;
 
@@ -108,7 +162,7 @@ int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols)
     }
     
     /* read image header (simple 8-bit greyscale PPM only) */
-    if (fscanf(fpt, "%s %d %d %d", header, &(*numberOfCols), &(*numberOfRows), &BYTES) != 4 || strcmp(header, "P5") != 0 || BYTES != 255) 
+    if (fscanf(fpt, "%s %d %d %d\n", header, &(*numberOfCols), &(*numberOfRows), &BYTES) != 4 || strcmp(header, "P5") != 0 || BYTES != 255)
     {
         fclose(fpt);
         return 2;
@@ -118,9 +172,8 @@ int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols)
 
 void readImage(unsigned char** destination, int size, char* source)
 {
-    if (DEBUG) printf("IN readImage\n");
     // Open image for reading
-    FILE *fpt = fopen(source, "r");
+    FILE *fpt = fopen(source, "rb");
     if (fpt == NULL) {
         printf("Failed to open file (%s) for reading.\n", source);
         exit(0);
@@ -132,30 +185,11 @@ void readImage(unsigned char** destination, int size, char* source)
 
 unsigned char* createImage(int size)
 {
-    if (DEBUG) printf("IN createImage\n");
-    unsigned char* newImage;
-
-    /* allocate dynamic memory for image */
-    newImage = (unsigned char*)calloc(size, sizeof(unsigned char));
+    unsigned char* newImage = (unsigned char*)calloc(size, sizeof(unsigned char));
     if (newImage == NULL) {
         printf("Unable to allocate %d bytes of memory.\n", size);
         exit(0);
     }
 
     return newImage;
-}
-
-int solution(int r, int c, int COLS, unsigned char* image) {
-    if (DEBUG) printf("IN solution");
-    /* calculate avg pixel value around 3x3 window of r,c */
-    int avg = 0;
-    for (int dr = -1; dr <= +1; dr++)
-    {
-        for (int dc = -1; dc <= +1; dc++)
-        {
-            avg = avg + image[(r + dr) * COLS + c + dc];
-            if (DEBUG) printf("SOLUTION - Pixel value for dr(%d) dc(%d) = %d\n", dr, dc, image[(r + dr) * COLS + c + dc]);
-        }
-    }
-    return avg / 9;
 }

@@ -1,16 +1,16 @@
 all: lab1
 
 lab1: lab1.o
-	gcc -o avg lab1.o
+	gcc -o avg lab1.o -lrt
 
 gdb:
-	gcc -o avg lab1.o -g
+	gcc -o avg lab1.o -lrt -g
 
 clean:
 	rm -f avg avg.o
 
 run_norm:
-	./avg bridge.ppm 234 321
+	./avg bridge.ppm
 
 run_filter:
-	./avg bridge.ppm 324 65 -s 3
+	./avg bridge.ppm -s 3
