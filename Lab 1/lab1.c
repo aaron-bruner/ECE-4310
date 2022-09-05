@@ -8,8 +8,8 @@
 #include <time.h>
 
 int getPixelValue(int rows, int columns, int COLS, unsigned char* image);
-int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols);
-void readImage(unsigned char** destination, int size, char* source);
+// int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols);
+void readImage(unsigned char** destination, int* ROWS, int* COLS, char* source);
 unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage);
 void separableFilter(void);
 void slidingWindow(void);
@@ -52,50 +52,21 @@ int main(int argc, char* argv[])
         }
     }
 
-    //sourceImage = createImage(255*255);         // Create an empty image that is large enough for ROWS x COLS bytes
-    //readImage(&sourceImage, 255*255, argv[1]);  // Once we've allocated space for our image data we can read it in
-
-    //readHeaderReturn = readHeader(sourceImage, &ROWS, &COLS);
-    //if (readHeaderReturn == 1)     // Read the provided image and validate that it's the correct format 
-    //{
-    //    printf("Unable to open %s for reading\n", argv[1]);
-    //    exit(0);
-    //}
-    //else if (readHeaderReturn == 2)
-    //{
-    //    printf("The file [%s] is not an 8-bit PPM greyscale (P5) image\n", argv[1]);
-    //    exit(0);
-    //}
-    
-    // Open image for reading
-    fpt = fopen(argv[1], "rb");
-
-    if (fpt == NULL) 
-    {
-        printf("Failed to open file (%s) for reading.\n", argv[1]);
-        exit(0);
-    }
-    
-    if (fscanf(fpt, "%s %d %d %d\n", header, &COLS, &ROWS, &BYTES) != 4 || strcmp(header, "P5") != 0 || BYTES != 255)
-    {
-        fclose(fpt);
-        exit(0);
-    }
-    
-    unsigned char* convolution = (unsigned char*)calloc(ROWS*COLS, sizeof(unsigned char));
-    fread(convolution, 1, ROWS * COLS, fpt);
-    fclose(fpt);
+    // Once we've allocated space for our image data we can read it in
+    readImage(sourceImage, &ROWS, &COLS, argv[1]);
     
     /// ----------------------------
     ///  Perform the 2D Convolution
     /// ----------------------------
-    filterSize = 3;
     convolutionImage = runConvolution(ROWS, COLS, filterSize, convolution);
 
+    // Export image to file
     fpt = fopen("convolution.ppm", "w");
     fprintf(fpt, "P5 %d %d 255\n", COLS, ROWS);
     fwrite(convolutionImage, COLS * ROWS, 1, fpt);
     fclose(fpt);
+
+    /// ----------------------------
 
 }
 
@@ -150,36 +121,50 @@ int getPixelValue(int rows, int columns, int COLS, unsigned char* image)
     return image[columns + rows * COLS];
 }
 
-int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols)
+// int readHeader(char* imageFile, int* numberOfRows, int* numberOfCols)
+// {
+//     static char header[80];
+//     int BYTES;
+//
+//     /* open image for reading */
+//     FILE *fpt = fopen(imageFile, "r");
+//     if (fpt == NULL) {
+//         return 1;
+//     }
+//     
+//     /* read image header (simple 8-bit greyscale PPM only) */
+//    if (fscanf(fpt, "%s %d %d %d\n", header, &(*numberOfCols), &(*numberOfRows), &BYTES) != 4 || strcmp(header, "P5") != 0 || BYTES != 255)
+//    {
+//        fclose(fpt);
+//        return 2;
+//    }
+//    return 0;
+// }
+
+
+void readImage(unsigned char* destination, int* ROWS, int* COLS, char* source)
 {
+    int BYTES, readHeaderReturn;
     static char header[80];
-    int BYTES;
 
-    /* open image for reading */
-    FILE *fpt = fopen(imageFile, "r");
-    if (fpt == NULL) {
-        return 1;
-    }
-    
-    /* read image header (simple 8-bit greyscale PPM only) */
-    if (fscanf(fpt, "%s %d %d %d\n", header, &(*numberOfCols), &(*numberOfRows), &BYTES) != 4 || strcmp(header, "P5") != 0 || BYTES != 255)
-    {
-        fclose(fpt);
-        return 2;
-    }
-    return 0;
-}
-
-void readImage(unsigned char** destination, int size, char* source)
-{
     // Open image for reading
     FILE *fpt = fopen(source, "rb");
     if (fpt == NULL) {
         printf("Failed to open file (%s) for reading.\n", source);
         exit(0);
     }
+    
+    /* read image header (simple 8-bit greyscale PPM only) */
+    if (fscanf(fpt, "%s %d %d %d\n", header, &(*COLS), &(*ROWS), &BYTES) != 4 || strcmp(header, "P5") != 0 || BYTES != 255)
+    {
+        fclose(fpt);
+        printf("Image header corrupted.\n");
+        exit(0);
+    }
 
-    fread(*destination, 1, size, fpt);
+    destination = createImage((*ROWS)*(*COLS)); // Create an empty image that is large enough for ROWS x COLS bytes
+    
+    fread(destination, 1, (*ROWS) * (*COLS), fpt);
     fclose(fpt);
 }
 
