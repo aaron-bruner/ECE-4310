@@ -1,3 +1,14 @@
+/* File  : lab1.c
+   Author: Aaron Bruner
+   Class : ECE - 4310 : Introduction to Computer Vision
+   Term  : Fall 2022
+
+   Description: The purpose of this lab was to design and implement three different filter types; 2D Convolution, Separable and Sliding Window.
+                Using the image bridge.ppm with all three filters we should get the same result which can be validated using the terminal command
+                'make diff.' More information regarding the topics discussed here can be found here:
+                https://towardsdatascience.com/a-basic-introduction-to-separable-convolutions-b99ec3102728
+*/
+
 #define True 1
 #define False 0
 #define DEBUG False
@@ -19,10 +30,10 @@ double time_spent = 0.0;
 
 int main(int argc, char* argv[])
 {
-    unsigned char *sourceImage, *convolutionImage, *separableImage, *slidingImage;
+    unsigned char* sourceImage, * convolutionImage, * separableImage, * slidingImage;
     char header[320];
     int filterSize = 0, ROWS, COLS;
-    FILE *fpt;
+    FILE* fpt;
 
     // Ensure that the provided CLA are correct and check if the optional filter size is provided
     if (argc < 2) {
@@ -76,20 +87,16 @@ int main(int argc, char* argv[])
     fwrite(separableImage, COLS * ROWS, 1, fpt);
     fclose(fpt);
 
-    /// ----------------------------
-    ///     Run Sliding Window
-    /// ----------------------------
-    //slidingImage = runSlidingWindow(ROWS, COLS, filterSize, sourceImage);
+    // ----------------------------
+    //     Run Sliding Window
+    // ----------------------------
+    slidingImage = runSlidingWindow(ROWS, COLS, filterSize, sourceImage);
 
-    //// Export image to file
-    //fpt = fopen("slidingWindow.ppm", "w");
-    //fprintf(fpt, "P5 %d %d 255\n", COLS, ROWS);
-    //fwrite(slidingImage, COLS * ROWS, 1, fpt);
-    //fclose(fpt);
-
-    /// ----------------------------
-
-    // TODO: Perform DIFF on the three image files. [Aaron, 9/5/2022]
+    // Export image to file
+    fpt = fopen("slidingWindow.ppm", "w");
+    fprintf(fpt, "P5 %d %d 255\n", COLS, ROWS);
+    fwrite(slidingImage, COLS * ROWS, 1, fpt);
+    fclose(fpt);
 }
 
 unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
@@ -101,20 +108,20 @@ unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char*
     
     for (int i = 0; i < 10; i++)
     {
-        if (i==0) printf("Performing 2D Convolution\nTime Spend for 10 iterations: ");
+        if (i==0) printf("\n\t\tPerforming 2D Convolution\nTime Spend for 10 iterations: ");
         clock_gettime(CLOCK_REALTIME, &start);
 
-        for (int r = filterSize; r < ROWS - filterSize; r++)
+        for (int imageRow = filterSize; imageRow < ROWS - filterSize; imageRow++)
         {
-            for (int c = filterSize; c < COLS - filterSize; c++, average = 0)
+            for (int imageColumn = filterSize; imageColumn < COLS - filterSize; imageColumn++, average = 0)
             {
-                for (int row = -filterSize; row <= filterSize; row++)
+                for (int filterRow = -filterSize; filterRow <= filterSize; filterRow++)
                 {
                     for (int column = -filterSize; column <= filterSize; column++) {
-                        average = average + getPixelValue(r + row, c + column, COLS, sourceImage);
+                        average = average + getPixelValue(imageRow + filterRow, imageColumn + column, COLS, sourceImage);
                     }
                 }
-                convolutionImage[r * COLS + c] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
+                convolutionImage[imageColumn + imageRow * COLS] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
             }
         }
         clock_gettime(CLOCK_REALTIME, &end);
@@ -122,6 +129,7 @@ unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char*
         timeSpent += end.tv_nsec - start.tv_nsec;
     }
     printf("\nAverage time spent performing 2D Convolution : %ld ns\n", (timeSpent/10) < 0 ? -(timeSpent/10) : timeSpent/10);
+    printf("| - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - |\n");
 
     return convolutionImage;
 }
@@ -131,7 +139,7 @@ unsigned char* runSeparableFilter(int ROWS, int COLS, int filterSize, unsigned c
     int average = 0;
     long int timeSpent = 0.0;
     struct timespec	start, end;
-    //unsigned char * separableImageRow = (unsigned char *)calloc(ROWS * COLS, sizeof(unsigned char
+    //unsigned char * separableImageRow = createImage(ROWS * COLS);
     //              --------------------------------------------------------
     // We cannot use unsigned char* because the average we're storing can be values that are greater than 255
     int * separableImageRow = (int *)calloc(ROWS * COLS, sizeof(int));
@@ -144,18 +152,18 @@ unsigned char* runSeparableFilter(int ROWS, int COLS, int filterSize, unsigned c
     // Run 10 times so we can get an average time over 10 iterations
     for (int i = 0; i < 10; i++)
     {
-        if (i == 0) printf("Performing Separable Filter\nTime Spend for 10 iterations: ");
+        if (i == 0) printf("\n\t\tPerforming Separable Filter\nTime Spend for 10 iterations: ");
         clock_gettime(CLOCK_REALTIME, &start);
 
         // Generate an image with averages of the horizontal rows
         for (int imageRow = 0; imageRow < ROWS; imageRow++)
         {
-            for (int imageColumn = filterSize; imageColumn < COLS-filterSize; imageColumn++, average = 0)
+            for (int imageColumn = filterSize; imageColumn < COLS - filterSize; imageColumn++, average = 0)
             {
                 for (int filterColumn = -filterSize; filterColumn <= filterSize; filterColumn++) {
                     average = average + sourceImage[(imageColumn + filterColumn) + imageRow * COLS];
                 }
-                separableImageRow[imageRow * COLS + imageColumn] = average;
+                separableImageRow[imageColumn + imageRow * COLS] = average;
             }
         }
 
@@ -168,7 +176,7 @@ unsigned char* runSeparableFilter(int ROWS, int COLS, int filterSize, unsigned c
                 for (int filterRow = -filterSize; filterRow <= filterSize; filterRow++) {
                     average = average + separableImageRow[imageColumn + (imageRow + filterRow) * COLS];
                 }
-                separableImageCol[imageRow * COLS + imageColumn] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
+                separableImageCol[imageColumn + imageRow * COLS] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
             }
         }
 
@@ -177,6 +185,7 @@ unsigned char* runSeparableFilter(int ROWS, int COLS, int filterSize, unsigned c
         timeSpent += end.tv_nsec - start.tv_nsec;
     }
     printf("\nAverage time spent performing Separable Filter : %ld ns\n", (timeSpent / 10) < 0 ? -(timeSpent / 10) : timeSpent / 10);
+    printf("| - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - |\n");
 
     return separableImageCol;
 }
@@ -186,34 +195,69 @@ unsigned char* runSlidingWindow(int ROWS, int COLS, int filterSize, unsigned cha
     int average = 0;
     long int timeSpent = 0.0;
     struct timespec	start, end;
-    unsigned char* convolutionImage = createImage(ROWS * COLS);
+    //unsigned char * slidingWindowImageRow = createImage(ROWS * COLS);
+    //              --------------------------------------------------------
+    // We cannot use unsigned char* because the average we're storing can be values that are greater than 255
+    int* slidingWindowImageRow = (int*)calloc(ROWS * COLS, sizeof(int));
+    unsigned char* slidingWindowImageColumn = createImage(ROWS * COLS);
 
     for (int i = 0; i < 10; i++)
     {
-        if (i == 0) printf("Performing 2D Convolution\nTime Spend for 10 iterations: ");
+        if (i == 0) printf("\n\t\tPerforming Sliding Window Filter\nTime Spend for 10 iterations: ");
         clock_gettime(CLOCK_REALTIME, &start);
 
-        for (int r = filterSize; r < ROWS - filterSize; r++)
+        // Generate an image with averages of the horizontal rows
+        for (int imageRow = 0; imageRow < ROWS; imageRow++)
         {
-            for (int c = filterSize; c < COLS - filterSize; c++)
+            for (int imageColumn = filterSize; imageColumn < COLS - filterSize; imageColumn++)
             {
-                average = 0;
-                for (int row = -filterSize; row <= filterSize; row++)
+                if (imageColumn == filterSize)
                 {
-                    for (int column = -filterSize; column <= filterSize; column++) {
-                        average = average + getPixelValue(r + row, c + column, COLS, sourceImage);
+                    average = 0;
+                    for (int filterColumn = -filterSize; filterColumn <= filterSize; filterColumn++)
+                    {
+                        average += sourceImage[(imageColumn + filterColumn) + imageRow * COLS];
                     }
                 }
-                convolutionImage[r * COLS + c] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
+                else
+                {
+                    average -= sourceImage[(imageColumn - (filterSize + 1)) + imageRow * COLS];
+                    average += sourceImage[(imageColumn + filterSize)       + imageRow * COLS];
+                }
+
+                slidingWindowImageRow[imageColumn + imageRow * COLS] = average;
             }
         }
+
+        for (int imageColumn = filterSize; imageColumn < COLS - filterSize; imageColumn++)
+        {
+            for (int imageRow = filterSize; imageRow < ROWS - filterSize; imageRow++)
+            {
+                if (imageRow == filterSize)
+                {
+                    average = 0;
+                    for (int filterRow = -filterSize; filterRow <= filterSize; filterRow++)
+                    {
+                        average += slidingWindowImageRow[imageColumn + (imageRow + filterRow) * COLS];
+                    }
+                }
+                else
+                {
+                    average -= slidingWindowImageRow[imageColumn + (imageRow - (filterSize + 1)) * COLS];
+                    average += slidingWindowImageRow[imageColumn + (imageRow + filterSize)       * COLS];
+                }
+                slidingWindowImageColumn[imageColumn + imageRow * COLS] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
+            }
+        }
+
         clock_gettime(CLOCK_REALTIME, &end);
         printf(" [#%d](%ld %ld) |", i + 1, (long int)end.tv_sec, end.tv_nsec);
         timeSpent += end.tv_nsec - start.tv_nsec;
     }
-    printf("\nAverage time spent performing 2D Convolution : %ld ns\n", (timeSpent / 10) < 0 ? -(timeSpent / 10) : timeSpent / 10);
+    printf("\nAverage time spent performing Sliding Window Filter : %ld ns\n", (timeSpent / 10) < 0 ? -(timeSpent / 10) : timeSpent / 10);
+    printf("| - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - |\n");
 
-    return convolutionImage;
+    return slidingWindowImageColumn;
 }
 
 int getPixelValue(int rows, int columns, int COLS, unsigned char* image) 
