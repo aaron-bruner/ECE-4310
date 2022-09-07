@@ -99,6 +99,15 @@ int main(int argc, char* argv[])
     fclose(fpt);
 }
 
+/// <summary>
+/// This is a standard convolution using methods described in the following article:
+///     http://www.songho.ca/dsp/convolution/convolution2d_example.html
+/// </summary>
+/// <param name="ROWS"> Number of rows in the sourceImage </param>
+/// <param name="COLS"> Number of columns in the sourceImage </param>
+/// <param name="filterSize"> How large of a convolution filter we want to run [Only odd values] </param>
+/// <param name="sourceImage"> The image that we are applying the filter to </param>
+/// <returns> The return value is the sourceImage but with a smoothing filter applied to it </returns>
 unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
 {
     int average = 0;
@@ -134,6 +143,15 @@ unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char*
     return convolutionImage;
 }
 
+/// <summary>
+/// This is a step further than a 2D Convolution using methods described in the following article:
+///     http://www.songho.ca/dsp/convolution/convolution.html#separable_convolution
+/// </summary>
+/// <param name="ROWS"> Number of rows in the sourceImage </param>
+/// <param name="COLS"> Number of columns in the sourceImage </param>
+/// <param name="filterSize"> How large of a convolution filter we want to run [Only odd values] </param>
+/// <param name="sourceImage"> The image that we are applying the filter to </param>
+/// <returns> The return value is the sourceImage but with a smoothing filter applied to it </returns>
 unsigned char* runSeparableFilter(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
 {
     int average = 0;
@@ -190,6 +208,15 @@ unsigned char* runSeparableFilter(int ROWS, int COLS, int filterSize, unsigned c
     return separableImageCol;
 }
 
+/// <summary>
+/// This is a much more efficient version of the 2D convolution. Instead of repeating the same multiplication operations :
+///     https://support.echoview.com/WebHelp/Reference/Algorithms/Operators/Convolution_algorithms.htm
+/// </summary>
+/// <param name="ROWS"> Number of rows in the sourceImage </param>
+/// <param name="COLS"> Number of columns in the sourceImage </param>
+/// <param name="filterSize"> How large of a convolution filter we want to run [Only odd values] </param>
+/// <param name="sourceImage"> The image that we are applying the filter to </param>
+/// <returns> The return value is the sourceImage but with a smoothing filter applied to it </returns>
 unsigned char* runSlidingWindow(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
 {
     int average = 0;
@@ -260,11 +287,26 @@ unsigned char* runSlidingWindow(int ROWS, int COLS, int filterSize, unsigned cha
     return slidingWindowImageColumn;
 }
 
+/// <summary>
+/// getPixelValue only has one purpose. It is designed to get the integer pixel value at a row and column
+/// </summary>
+/// <param name="rows"></param>
+/// <param name="columns"></param>
+/// <param name="COLS"> Number of columns in the source image </param>
+/// <param name="image"> Image we're interested in getting the pixel value of</param>
+/// <returns></returns>
 int getPixelValue(int rows, int columns, int COLS, unsigned char* image) 
 {
     return image[columns + rows * COLS];
 }
 
+/// <summary>
+/// The readImage function is designed to take a file name as the source and reads all of the data into a new image.
+/// </summary>
+/// <param name="ROWS"> Number of rows in the source image </param>
+/// <param name="COLS"> Number of columns in the source image </param>
+/// <param name="source"> File name that we're needing to open and read data from </param>
+/// <returns> The function returns an array of values which makes up our image </returns>
 unsigned char* readImage(int* ROWS, int* COLS, char* source)
 {
     int BYTES, readHeaderReturn;
@@ -293,6 +335,11 @@ unsigned char* readImage(int* ROWS, int* COLS, char* source)
     return destination;
 }
 
+/// <summary>
+/// createImage allocates memory for our image array.
+/// </summary>
+/// <param name="size"> Number of bytes that are needing to be allocated for our image </param>
+/// <returns> An array with 'size' number of bytes allocated for our image use</returns>
 unsigned char* createImage(int size)
 {
     unsigned char* newImage = (unsigned char*)calloc(size, sizeof(unsigned char));
