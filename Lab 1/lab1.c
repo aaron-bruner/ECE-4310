@@ -10,6 +10,7 @@
 
   Bugs:
     * There is an issue with the modular filter size ability.
+        Update: It seems to be working fine for filter size >= 3. 1 Doesn't filter it at all
 */
 
 #define True 1
