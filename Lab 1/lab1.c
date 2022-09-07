@@ -7,6 +7,9 @@
                 Using the image bridge.ppm with all three filters we should get the same result which can be validated using the terminal command
                 'make diff.' More information regarding the topics discussed here can be found here:
                 https://towardsdatascience.com/a-basic-introduction-to-separable-convolutions-b99ec3102728
+
+  Bugs:
+    * There is an issue with the modular filter size ability.
 */
 
 #define True 1
