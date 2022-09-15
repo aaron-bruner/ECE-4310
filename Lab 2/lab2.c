@@ -1,16 +1,18 @@
-/* File  : lab1.c
+﻿/* File  : lab2.c
    Author: Aaron Bruner
    Class : ECE - 4310 : Introduction to Computer Vision
    Term  : Fall 2022
 
-   Description: The purpose of this lab was to design and implement three different filter types; 2D Convolution, Separable and Sliding Window.
-                Using the image bridge.ppm with all three filters we should get the same result which can be validated using the terminal command
-                'make diff.' More information regarding the topics discussed here can be found here:
-                https://towardsdatascience.com/a-basic-introduction-to-separable-convolutions-b99ec3102728
+   Description: The purpose of this lab was to design and implement a matched filter (normalized cross-correlation) to recognize letters in an image of text.
+                The ground truth file lists all the letters and image pixel coordinates of text in the image. The pixel coordinates are for the center point of each letter.
 
-  Bugs:
-    * There is an issue with the modular filter size ability.
-        Update: It seems to be working fine for filter size >= 3. 1 Doesn't filter it at all
+   Required Files:
+    * parenthood.ppm
+    * parenthood_e_template.ppm
+    * parenthood_gt.txt
+
+   Bugs:
+    * 
 */
 
 #define True 1
@@ -22,273 +24,156 @@
 #include <string.h>
 #include <time.h>
 
+struct groundTruth {
+    char letter;
+    int  x; // COLUMN
+    int  y; // ROW
+};
+
 int getPixelValue(int rows, int columns, int COLS, unsigned char* image);
 unsigned char* readImage( int* ROWS, int* COLS, char* source);
 unsigned char* createImage(int size);
-unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage);
-unsigned char* runSeparableFilter(int ROWS, int COLS, int filterSize, unsigned char* sourceImage);
-unsigned char* runSlidingWindow(int ROWS, int COLS, int filterSize, unsigned char* sourceImage);
 
-clock_t start, end;
-double time_spent = 0.0;
+char* sourceImageDir    = "parenthood.ppm";
+char* templateImageDir  = "parenthood_e_template.ppm";
+char* groundTruthDir    = "parenthood_gt.txt";
 
 int main(int argc, char* argv[])
 {
-    unsigned char* sourceImage, * convolutionImage, * separableImage, * slidingImage;
-    char header[320];
-    int filterSize = 0, ROWS, COLS;
+    unsigned char* sourceImage, *templateImage, *zeroMeanImage, *MSF;
+    char sourceHeader[320], templateHeader[320];
+    int i = 0, mean = 0, sourceROWS, sourceCOLS, templateROWS, templateCOLS, filterRow, filterCol;
+    int r, c, dr, dc, wr, wc, average;
     FILE* fpt;
 
-    // Ensure that the provided CLA are correct and check if the optional filter size is provided
-    if (argc < 2) {
-        printf("Usage: avg [filename.ppm] (-s) (odd filter size)\n\nExample: avg bridge.ppm -s 3\n");
-        exit(0);
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    /*                      STEP 1: Read in source, template and ground truth                      */
+    /*      * User provides no arguments (argc == 1) then we default to specified files            */
+    /*      * User provides 4 arguments  (argc == 4) then we open provided files                   */
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    printf("Step 1:\n");
+    if (argc == 1) {
+        printf("Performing matched filter on images [%s] and [%s] using ground truth [%s]\n", sourceImageDir, templateImageDir, groundTruthDir);
+
+        printf("\t* Reading in source image...");
+        sourceImage = readImage(&sourceROWS, &sourceCOLS, sourceImageDir);
+        printf("\t[SUCCESS]\n");
+        printf("\t* Reading in template image...");
+        templateImage = readImage(&templateROWS, &templateCOLS, templateImageDir);
+        printf("\t[SUCCESS]\n");
+
+        // Read in CSV/TXT file
+        printf("\t* Opening ground truth file...");
+        fpt = fopen(groundTruthDir, "r");
+        if (fpt == NULL)
+        {
+            printf("Failed to open %s\n", groundTruthDir); exit(0);
+        }
+        else
+        {
+            printf("\t[SUCCESS]\n");
+        }
     }
-    else if (argc >= 2) // Check to see if optional flags are available
+    else if (argc == 4)
     {
-        if (argc == 4 && strcmp(argv[2], "-s") == 0) // User specified a filter specific filter size
+        printf("Performing matched filter on images [%s] and [%s] using ground truth [%s]\n", argv[1], argv[2], argv[3]);
+
+        printf("\t* Reading in source image...");
+        sourceImage = readImage(&sourceROWS, &sourceCOLS, argv[1]);
+        printf("\t[SUCCESS]\n");
+        printf("\t* Reading in template image...");
+        templateImage = readImage(&templateROWS, &templateCOLS, argv[2]);
+        printf("\t[SUCCESS]\n");
+
+        // Read in CSV/TXT file
+        printf("\t* Opening ground truth file...");
+        fpt = fopen(argv[3], "r");
+        if (fpt == NULL)
         {
-            if (atoi(argv[3]) % 2 != 0) // Odd
-            {
-                filterSize = atoi(argv[3]) / 2;
-                // We divide by two so that we have the filter size we need. An example is shown below:
-                // 0/2 = 0      3/2 = 1     5/2 = 2     7/2 = 3     and so on. Since they integers we don't get the decimals
-            }
-            else // Even
-            {
-                printf("Error: Filter size must be an odd number.\n");
-                exit(0);
-            }
+            printf("Failed to open %s\n", argv[3]); exit(0);
         }
-        else // Unless they specify a filter size then we default to 7x7
+        else
         {
-            filterSize = 3;
+            printf("\t[SUCCESS]\n");
         }
     }
 
-    // Once we've allocated space for our image data we can read it in
-    sourceImage = readImage(&ROWS, &COLS, argv[1]);
+    int temp1, temp2, fileRows = 0;                       // Number of rows in the ground truth file
+    char temp;
+    while ((i = fscanf(fpt, "%c %d %d\n", &temp, &temp1, &temp2)) && !feof(fpt))
+        if (i == 3) fileRows += 1;
+    printf("\t* Found %d number of rows in the ground truth file\n", fileRows);
 
-    /// ----------------------------
-    ///  Perform the 2D Convolution
-    /// ----------------------------
-    convolutionImage = runConvolution(ROWS, COLS, filterSize, sourceImage);
+    struct groundTruth* truth;
+    truth = calloc(fileRows, sizeof(struct groundTruth));
 
-    // Export image to file
-    fpt = fopen("convolution.ppm", "w");
-    fprintf(fpt, "P5 %d %d 255\n", COLS, ROWS);
-    fwrite(convolutionImage, COLS * ROWS, 1, fpt);
+    rewind(fpt); // Return to the beginning of the file
+    printf("\t* Scanning in values from ground truth file...");
+    for (i = 0; i <= fileRows && !feof(fpt); i++)
+    {
+        fscanf(fpt, "%c %d %d\n", &truth[i].letter, &truth[i].x, &truth[i].y);
+    }
     fclose(fpt);
+    printf("\t[Read in %d rows]\n", i - 1);
 
-    /// ----------------------------
-    ///     Run Separable Filter
-    /// ----------------------------
-    separableImage = runSeparableFilter(ROWS, COLS, filterSize, sourceImage);
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    /*                  STEP 2: Calculate the matched-spatial filter (MSF) image.                  */
+    /*                          a) Zero-Mean Center the template                                   */
+    /*                          b) Convolve with image                                             */
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-    // Export image to file
-    fpt = fopen("separableFilter.ppm", "w");
-    fprintf(fpt, "P5 %d %d 255\n", COLS, ROWS);
-    fwrite(separableImage, COLS * ROWS, 1, fpt);
-    fclose(fpt);
+    printf("Step 2:\n"); printf("Calculate the mean of the template image...\n");
+    for (i = 0; i < templateCOLS * templateROWS; i++) // Sum all pixels
+        mean += templateImage[i];
+    mean /= templateCOLS * templateROWS;
+    printf("\t* Mean pixel value in the template image = %d\n", mean);
 
-    // ----------------------------
-    //     Run Sliding Window
-    // ----------------------------
-    slidingImage = runSlidingWindow(ROWS, COLS, filterSize, sourceImage);
+    // Zero Mean Template Image
+    printf("\t* Generating the zero mean template image\n");
+    for (i = 0; i < templateCOLS * templateROWS; i++)
+        templateImage[i] -= mean;
 
-    // Export image to file
-    fpt = fopen("slidingWindow.ppm", "w");
-    fprintf(fpt, "P5 %d %d 255\n", COLS, ROWS);
-    fwrite(slidingImage, COLS * ROWS, 1, fpt);
-    fclose(fpt);
-}
+    // MSF[r,c] = SIG(+Wr/2 -> dr=Wr/2) SIG(+Wc/2 -> dc=Wc/2)[ I[r + dr,c + dc] * T[dr + Wr/2,dc + Wc/2] ]
+    printf("\t\t* Allocating space for MSF image...");
+    MSF = createImage(sourceCOLS * sourceROWS);
+    printf("\t[SUCCESS]\n");
+    printf("\t\t* Convolving source and zero-mean centered image...");
+    wr = templateROWS; wc = templateCOLS; dr = wr/2; dc = wc/2;
+    for (r = dr; r < sourceROWS - dr; r++)
+    {
+        for (c = dc; c < sourceCOLS - dc; c++, MSF[r * sourceCOLS + c] = average)
+        {
+            average = 0;
+            for (filterRow = -wr; filterRow < wr; filterRow++)
+            {
+                for (filterCol = -wc; filterCol < wc; filterCol++)
+                {
+                    average += getPixelValue(r + filterRow, c + filterCol, sourceImage) *
+                            getPixelValue(filterRow + dr, filterCol + dc, templateImage);
+                }
+            }
+            MSF[r * sourceCOLS + c] = average;
+        }
+    }
+    printf("\t[SUCCESS]\n");
 
-/// <summary>
-/// This is a standard convolution using methods described in the following article:
-///     http://www.songho.ca/dsp/convolution/convolution2d_example.html
-/// </summary>
-/// <param name="ROWS"> Number of rows in the sourceImage </param>
-/// <param name="COLS"> Number of columns in the sourceImage </param>
-/// <param name="filterSize"> How large of a convolution filter we want to run [Only odd values] </param>
-/// <param name="sourceImage"> The image that we are applying the filter to </param>
-/// <returns> The return value is the sourceImage but with a smoothing filter applied to it </returns>
-unsigned char* runConvolution(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
-{
-    int average = 0;
-    long int timeSpent = 0.0;
-    struct timespec	start, end;
-    unsigned char* convolutionImage = createImage(ROWS*COLS);
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    /*                        STEP 3: Normalize the MSF image to 8-bit                             */
+    /*                          a) Find the min and max of MSF                                     */
+    /*                          b) 
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+
+    printf("\t* Finding the minimum pixel and maximum pixel of the MSF...");
     
-    for (int i = 0; i < 10; i++)
-    {
-        if (i==0) printf("\n\t\tPerforming 2D Convolution\nTime Spend for 10 iterations: ");
-        clock_gettime(CLOCK_REALTIME, &start);
-
-        for (int imageRow = filterSize; imageRow < ROWS - filterSize; imageRow++)
-        {
-            for (int imageColumn = filterSize; imageColumn < COLS - filterSize; imageColumn++, average = 0)
-            {
-                for (int filterRow = -filterSize; filterRow <= filterSize; filterRow++)
-                {
-                    for (int column = -filterSize; column <= filterSize; column++) {
-                        average = average + getPixelValue(imageRow + filterRow, imageColumn + column, COLS, sourceImage);
-                    }
-                }
-                convolutionImage[imageColumn + imageRow * COLS] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
-            }
-        }
-        clock_gettime(CLOCK_REALTIME, &end);
-        printf(" [#%d](%ld %ld) |", i+1, (long int)end.tv_sec, end.tv_nsec);
-        timeSpent += end.tv_nsec - start.tv_nsec;
-    }
-    printf("\nAverage time spent performing 2D Convolution : %ld ns\n", (timeSpent/10) < 0 ? -(timeSpent/10) : timeSpent/10);
-    printf("| - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - |\n");
-
-    return convolutionImage;
-}
-
-/// <summary>
-/// This is a step further than a 2D Convolution using methods described in the following article:
-///     http://www.songho.ca/dsp/convolution/convolution.html#separable_convolution
-/// </summary>
-/// <param name="ROWS"> Number of rows in the sourceImage </param>
-/// <param name="COLS"> Number of columns in the sourceImage </param>
-/// <param name="filterSize"> How large of a convolution filter we want to run [Only odd values] </param>
-/// <param name="sourceImage"> The image that we are applying the filter to </param>
-/// <returns> The return value is the sourceImage but with a smoothing filter applied to it </returns>
-unsigned char* runSeparableFilter(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
-{
-    int average = 0;
-    long int timeSpent = 0.0;
-    struct timespec	start, end;
-    //unsigned char * separableImageRow = createImage(ROWS * COLS);
-    //              --------------------------------------------------------
-    // We cannot use unsigned char* because the average we're storing can be values that are greater than 255
-    int * separableImageRow = (int *)calloc(ROWS * COLS, sizeof(int));
-    unsigned char * separableImageCol = createImage(ROWS * COLS);
-    if (separableImageRow == NULL) {
-        printf("Unable to allocate %d bytes of memory for separableImageRow.\n", ROWS * COLS);
-        exit(0);
-    }
-
-    // Run 10 times so we can get an average time over 10 iterations
-    for (int i = 0; i < 10; i++)
-    {
-        if (i == 0) printf("\n\t\tPerforming Separable Filter\nTime Spend for 10 iterations: ");
-        clock_gettime(CLOCK_REALTIME, &start);
-
-        // Generate an image with averages of the horizontal rows
-        for (int imageRow = 0; imageRow < ROWS; imageRow++)
-        {
-            for (int imageColumn = filterSize; imageColumn < COLS - filterSize; imageColumn++, average = 0)
-            {
-                for (int filterColumn = -filterSize; filterColumn <= filterSize; filterColumn++) {
-                    average = average + sourceImage[(imageColumn + filterColumn) + imageRow * COLS];
-                }
-                separableImageRow[imageColumn + imageRow * COLS] = average;
-            }
-        }
-
-        // This is essentially the normal 2D convolution since the rows are already averaged
-        // However, instead of needing to average the rows we only need to worry about the columns
-        for (int imageRow = filterSize; imageRow < ROWS - filterSize; imageRow++)
-        {
-            for (int imageColumn = 0; imageColumn < COLS; imageColumn++, average = 0)
-            {
-                for (int filterRow = -filterSize; filterRow <= filterSize; filterRow++) {
-                    average = average + separableImageRow[imageColumn + (imageRow + filterRow) * COLS];
-                }
-                separableImageCol[imageColumn + imageRow * COLS] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
-            }
-        }
-
-        clock_gettime(CLOCK_REALTIME, &end);
-        printf(" [#%d](%ld %ld) |", i + 1, (long int)end.tv_sec, end.tv_nsec);
-        timeSpent += end.tv_nsec - start.tv_nsec;
-    }
-    printf("\nAverage time spent performing Separable Filter : %ld ns\n", (timeSpent / 10) < 0 ? -(timeSpent / 10) : timeSpent / 10);
-    printf("| - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - |\n");
-
-    return separableImageCol;
-}
-
-/// <summary>
-/// This is a much more efficient version of the 2D convolution. Instead of repeating the same multiplication operations :
-///     https://support.echoview.com/WebHelp/Reference/Algorithms/Operators/Convolution_algorithms.htm
-/// </summary>
-/// <param name="ROWS"> Number of rows in the sourceImage </param>
-/// <param name="COLS"> Number of columns in the sourceImage </param>
-/// <param name="filterSize"> How large of a convolution filter we want to run [Only odd values] </param>
-/// <param name="sourceImage"> The image that we are applying the filter to </param>
-/// <returns> The return value is the sourceImage but with a smoothing filter applied to it </returns>
-unsigned char* runSlidingWindow(int ROWS, int COLS, int filterSize, unsigned char* sourceImage)
-{
-    int average = 0;
-    long int timeSpent = 0.0;
-    struct timespec	start, end;
-    //unsigned char * slidingWindowImageRow = createImage(ROWS * COLS);
-    //              --------------------------------------------------------
-    // We cannot use unsigned char* because the average we're storing can be values that are greater than 255
-    int* slidingWindowImageRow = (int*)calloc(ROWS * COLS, sizeof(int));
-    unsigned char* slidingWindowImageColumn = createImage(ROWS * COLS);
-
-    for (int i = 0; i < 10; i++)
-    {
-        if (i == 0) printf("\n\t\tPerforming Sliding Window Filter\nTime Spend for 10 iterations: ");
-        clock_gettime(CLOCK_REALTIME, &start);
-
-        // Generate an image with averages of the horizontal rows
-        for (int imageRow = 0; imageRow < ROWS; imageRow++)
-        {
-            for (int imageColumn = filterSize; imageColumn < COLS - filterSize; imageColumn++)
-            {
-                if (imageColumn == filterSize)
-                {
-                    average = 0;
-                    for (int filterColumn = -filterSize; filterColumn <= filterSize; filterColumn++)
-                    {
-                        average += sourceImage[(imageColumn + filterColumn) + imageRow * COLS];
-                    }
-                }
-                else
-                {
-                    average -= sourceImage[(imageColumn - (filterSize + 1)) + imageRow * COLS];
-                    average += sourceImage[(imageColumn + filterSize)       + imageRow * COLS];
-                }
-
-                slidingWindowImageRow[imageColumn + imageRow * COLS] = average;
-            }
-        }
-
-        for (int imageColumn = filterSize; imageColumn < COLS - filterSize; imageColumn++)
-        {
-            for (int imageRow = filterSize; imageRow < ROWS - filterSize; imageRow++)
-            {
-                if (imageRow == filterSize)
-                {
-                    average = 0;
-                    for (int filterRow = -filterSize; filterRow <= filterSize; filterRow++)
-                    {
-                        average += slidingWindowImageRow[imageColumn + (imageRow + filterRow) * COLS];
-                    }
-                }
-                else
-                {
-                    average -= slidingWindowImageRow[imageColumn + (imageRow - (filterSize + 1)) * COLS];
-                    average += slidingWindowImageRow[imageColumn + (imageRow + filterSize)       * COLS];
-                }
-                slidingWindowImageColumn[imageColumn + imageRow * COLS] = average / ((filterSize * 2 + 1) * (filterSize * 2 + 1));
-            }
-        }
-
-        clock_gettime(CLOCK_REALTIME, &end);
-        printf(" [#%d](%ld %ld) |", i + 1, (long int)end.tv_sec, end.tv_nsec);
-        timeSpent += end.tv_nsec - start.tv_nsec;
-    }
-    printf("\nAverage time spent performing Sliding Window Filter : %ld ns\n", (timeSpent / 10) < 0 ? -(timeSpent / 10) : timeSpent / 10);
-    printf("| - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - |\n");
-
-    return slidingWindowImageColumn;
+    // Clean Up : Release all memory we allocated (I forgot to do this in lab 1 :clown:)
+    free(sourceImage);
+    free(templateImage);
+    //free(output);
+    free(truth);
 }
 
 /// <summary>
