@@ -40,10 +40,11 @@ char* groundTruthDir    = "parenthood_gt.txt";
 
 int main(int argc, char* argv[])
 {
-    unsigned char* sourceImage, *templateImage, *zeroMeanImage, *MSF;
+    unsigned char* sourceImage, *templateImage, *zeroMeanImage, *MSF_Normalized, *result;
+    int* templateMSF, *MSF;
     char sourceHeader[320], templateHeader[320];
     int i = 0, mean = 0, sourceROWS, sourceCOLS, templateROWS, templateCOLS, filterRow, filterCol;
-    int r, c, dr, dc, wr, wc, average;
+    int r, c, dr, dc, wr, wc, average, min, max;
     FILE* fpt;
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
@@ -122,6 +123,8 @@ int main(int argc, char* argv[])
     /*                          b) Convolve with image                                             */
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
+    templateMSF = (int*)calloc(templateCOLS * templateROWS, sizeof(int));
+
     printf("Step 2:\n"); printf("Calculate the mean of the template image...\n");
     for (i = 0; i < templateCOLS * templateROWS; i++) // Sum all pixels
         mean += templateImage[i];
@@ -131,28 +134,27 @@ int main(int argc, char* argv[])
     // Zero Mean Template Image
     printf("\t* Generating the zero mean template image\n");
     for (i = 0; i < templateCOLS * templateROWS; i++)
-        templateImage[i] -= mean;
+        templateMSF[i] = templateImage[i] - mean;
 
     // MSF[r,c] = SIG(+Wr/2 -> dr=Wr/2) SIG(+Wc/2 -> dc=Wc/2)[ I[r + dr,c + dc] * T[dr + Wr/2,dc + Wc/2] ]
     printf("\t\t* Allocating space for MSF image...");
-    MSF = createImage(sourceCOLS * sourceROWS);
+    MSF = (int*)calloc(sourceCOLS * sourceROWS, sizeof(int));
     printf("\t[SUCCESS]\n");
     printf("\t\t* Convolving source and zero-mean centered image...");
     wr = templateROWS; wc = templateCOLS; dr = wr/2; dc = wc/2;
     for (r = dr; r < sourceROWS - dr; r++)
     {
-        for (c = dc; c < sourceCOLS - dc; c++, MSF[r * sourceCOLS + c] = average)
+        for (c = dc; c < sourceCOLS - dc; c++, average = 0)
         {
-            average = 0;
-            for (filterRow = -wr; filterRow < wr; filterRow++)
+            for (filterRow = -dr; filterRow < templateROWS - dr; filterRow++)
             {
-                for (filterCol = -wc; filterCol < wc; filterCol++)
+                for (filterCol = -dc; filterCol < templateCOLS - dc; filterCol++)
                 {
-                    average += getPixelValue(r + filterRow, c + filterCol, sourceImage) *
-                            getPixelValue(filterRow + dr, filterCol + dc, templateImage);
+                    average += sourceImage[(r + filterRow) * sourceCOLS + (c + filterCol)] *
+                            templateMSF[(filterRow + dr) * templateCOLS + (filterCol + dc)];
                 }
             }
-            MSF[r * sourceCOLS + c] = average;
+            MSF[r * sourceCOLS + c] = (int)average;
         }
     }
     printf("\t[SUCCESS]\n");
@@ -160,19 +162,80 @@ int main(int argc, char* argv[])
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
     /*                        STEP 3: Normalize the MSF image to 8-bit                             */
     /*                          a) Find the min and max of MSF                                     */
-    /*                          b) 
+    /*                          b) Create the 8-bit representation of the MSF                      */
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
+    printf("Step 3:\n"); printf("Finding the minimum pixel and maximum pixel of the MSF...\n");
+    min = max = MSF[0];
+    printf("\t* Calculating the minimum and maximum pixel in MSF image...");
+    for (i = 1; i < sourceROWS * sourceCOLS; i++)
+    {
+        if (MSF[i] > max)
+            max = MSF[i];
+        if (MSF[i] < min)
+            min = MSF[i];
+    }
+    printf("\t[SUCCESS]\n");
+    printf("\t\t* Minimum determined to be: %d\n\t\t* Maximum determined to be: %d\n", min, max);
+    printf("\t* Normalizing the MSF image to 8-bit...");
+    printf("\n\t\t* Creating space for normalized image...");
+    MSF_Normalized = createImage(sourceCOLS * sourceROWS);
+    printf("\t[SUCCESS]\n");
+
+    for (i = 0; i < sourceROWS * sourceCOLS; i++)
+    {
+        MSF_Normalized[i] = (MSF[i] - min) * 255 / (max - min);
+    }
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    /*                 STEP 4: Looping through the following steps for a range of T                */
+    /*           a) Threshold at T the normalized MSF image to create a binary image               */
+    /*           b) Loop through the ground truth letter locations                                 */
+    /*                  i. Check a 9 x 15 pixel area centered at the ground truth location. If     */
+    /*                     any pixel in the MSF image is greater than the threshold, consider      */
+    /*                     the letter “detected”.If none of the pixels in the 9 x 15 area are      */
+    /*                     greater than the threshold, consider the letter “not detected”          */
+    /*           c) Categorize and count the detected letters as FP (“detected” but the letter is  */
+    /*              not ‘e’) and TP (“detected” and the letter is ‘e’)                             */
+    /*           d) Output the total FP and TP for each T                                          */
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    
+    int found = False, T = 150; // Threshold
+    
+    printf("Step 4:\n"); printf("Creating a binary image using the threshold...");
+    printf("\t* Creating result image"); result = createImage(sourceCOLS * sourceROWS); printf("\t[SUCCESS]\n");
 
+    for (r = 7; r < sourceROWS - 7; r += 2 * 7 + 1) {
+        for (c = 4; c < sourceCOLS - 4; c += 2 * 4 + 1) {
+            for (filterRow = -7; filterRow <= 7; filterRow++) {
+                for (filterCol = -4; filterCol <= 4; filterCol++) {
+                    if ((int)MSF_Normalized[(r + filterCol) * sourceCOLS + (c + filterCol)] >= T) {
+                        found = True;
 
-    printf("\t* Finding the minimum pixel and maximum pixel of the MSF...");
+                    }
+                }
+            }
+            result[r * sourceCOLS + c] = found == True ? 255 : 0;
+            found = False;
+        }
+    }
+
+    fpt = fopen("result.ppm", "w");
+    fprintf(fpt, "P5 %d %d 255\n", sourceCOLS, sourceROWS);
+    fwrite(result, sourceCOLS * sourceROWS, 1, fpt);
+    fclose(fpt);
+
+    fpt = fopen("MSF_Normalized.ppm", "w");
+    fprintf(fpt, "P5 %d %d 255\n", sourceCOLS, sourceROWS);
+    fwrite(MSF_Normalized, sourceCOLS * sourceROWS, 1, fpt);
+    fclose(fpt);
+
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
     
     // Clean Up : Release all memory we allocated (I forgot to do this in lab 1 :clown:)
     free(sourceImage);
     free(templateImage);
-    //free(output);
+    free(result);
     free(truth);
 }
 
