@@ -18,6 +18,7 @@
 #define True 1
 #define False 0
 #define DEBUG False
+#define T 255 // Upper limit for thresholding
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +31,6 @@ struct groundTruth {
     int  y; // ROW
 };
 
-int getPixelValue(int rows, int columns, int COLS, unsigned char* image);
 unsigned char* readImage( int* ROWS, int* COLS, char* source);
 unsigned char* createImage(int size);
 
@@ -40,11 +40,13 @@ char* groundTruthDir    = "parenthood_gt.txt";
 
 int main(int argc, char* argv[])
 {
-    unsigned char* sourceImage, *templateImage, *zeroMeanImage, *MSF_Normalized, *result;
+    unsigned char* sourceImage, *templateImage, *zeroMeanImage, *MSF_Normalized, *thresholdImage;
     int* templateMSF, *MSF;
-    char sourceHeader[320], templateHeader[320];
-    int i = 0, mean = 0, sourceROWS, sourceCOLS, templateROWS, templateCOLS, filterRow, filterCol;
-    int r, c, dr, dc, wr, wc, average, min, max;
+    struct groundTruth* truth;
+    char sourceHeader[320], templateHeader[320], temp, letter;
+    int temp1, temp2, fileRows = 0; // Number of rows in the ground truth file
+    int i = 0, j = 0, mean = 0, sourceROWS, sourceCOLS, templateROWS, templateCOLS, filterRow, filterCol;
+    int r, c, dr, dc, wr, wc, average, min, max, found = False, TP, FP;
     FILE* fpt;
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
@@ -52,61 +54,42 @@ int main(int argc, char* argv[])
     /*      * User provides no arguments (argc == 1) then we default to specified files            */
     /*      * User provides 4 arguments  (argc == 4) then we open provided files                   */
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
     printf("Step 1:\n");
     if (argc == 1) {
         printf("Performing matched filter on images [%s] and [%s] using ground truth [%s]\n", sourceImageDir, templateImageDir, groundTruthDir);
 
         printf("\t* Reading in source image...");
-        sourceImage = readImage(&sourceROWS, &sourceCOLS, sourceImageDir);
-        printf("\t[SUCCESS]\n");
+        sourceImage = readImage(&sourceROWS, &sourceCOLS, sourceImageDir); printf("\t[SUCCESS]\n");
         printf("\t* Reading in template image...");
-        templateImage = readImage(&templateROWS, &templateCOLS, templateImageDir);
-        printf("\t[SUCCESS]\n");
+        templateImage = readImage(&templateROWS, &templateCOLS, templateImageDir); printf("\t[SUCCESS]\n");
 
         // Read in CSV/TXT file
         printf("\t* Opening ground truth file...");
         fpt = fopen(groundTruthDir, "r");
-        if (fpt == NULL)
-        {
-            printf("Failed to open %s\n", groundTruthDir); exit(0);
-        }
-        else
-        {
-            printf("\t[SUCCESS]\n");
-        }
+        fpt == NULL ? printf("Failed to open %s\n", groundTruthDir), exit(0) : printf("\t[SUCCESS]\n");
     }
     else if (argc == 4)
     {
         printf("Performing matched filter on images [%s] and [%s] using ground truth [%s]\n", argv[1], argv[2], argv[3]);
 
         printf("\t* Reading in source image...");
-        sourceImage = readImage(&sourceROWS, &sourceCOLS, argv[1]);
-        printf("\t[SUCCESS]\n");
+        sourceImage = readImage(&sourceROWS, &sourceCOLS, argv[1]); printf("\t[SUCCESS]\n");
         printf("\t* Reading in template image...");
-        templateImage = readImage(&templateROWS, &templateCOLS, argv[2]);
-        printf("\t[SUCCESS]\n");
+        templateImage = readImage(&templateROWS, &templateCOLS, argv[2]); printf("\t[SUCCESS]\n");
 
         // Read in CSV/TXT file
         printf("\t* Opening ground truth file...");
         fpt = fopen(argv[3], "r");
-        if (fpt == NULL)
-        {
-            printf("Failed to open %s\n", argv[3]); exit(0);
-        }
-        else
-        {
-            printf("\t[SUCCESS]\n");
-        }
+        fpt == NULL ? printf("Failed to open %s\n", argv[3]), exit(0) : printf("\t[SUCCESS]\n");
     }
 
-    int temp1, temp2, fileRows = 0;                       // Number of rows in the ground truth file
-    char temp;
     while ((i = fscanf(fpt, "%c %d %d\n", &temp, &temp1, &temp2)) && !feof(fpt))
         if (i == 3) fileRows += 1;
     printf("\t* Found %d number of rows in the ground truth file\n", fileRows);
 
-    struct groundTruth* truth;
-    truth = calloc(fileRows, sizeof(struct groundTruth));
+    printf("\t* Allocating space for ground truth file...");
+    truth = calloc(fileRows, sizeof(struct groundTruth)); printf("\n\t[SUCCESS]\n");
 
     rewind(fpt); // Return to the beginning of the file
     printf("\t* Scanning in values from ground truth file...");
@@ -123,8 +106,6 @@ int main(int argc, char* argv[])
     /*                          b) Convolve with image                                             */
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-    templateMSF = (int*)calloc(templateCOLS * templateROWS, sizeof(int));
-
     printf("Step 2:\n"); printf("Calculate the mean of the template image...\n");
     for (i = 0; i < templateCOLS * templateROWS; i++) // Sum all pixels
         mean += templateImage[i];
@@ -133,13 +114,14 @@ int main(int argc, char* argv[])
 
     // Zero Mean Template Image
     printf("\t* Generating the zero mean template image\n");
+    printf("\t\t* Allocating space for template MSF image...");
+    templateMSF = (int*)calloc(templateCOLS * templateROWS, sizeof(int)); printf("\t[SUCCESS]\n");
     for (i = 0; i < templateCOLS * templateROWS; i++)
         templateMSF[i] = templateImage[i] - mean;
 
     // MSF[r,c] = SIG(+Wr/2 -> dr=Wr/2) SIG(+Wc/2 -> dc=Wc/2)[ I[r + dr,c + dc] * T[dr + Wr/2,dc + Wc/2] ]
     printf("\t\t* Allocating space for MSF image...");
-    MSF = (int*)calloc(sourceCOLS * sourceROWS, sizeof(int));
-    printf("\t[SUCCESS]\n");
+    MSF = (int*)calloc(sourceCOLS * sourceROWS, sizeof(int)); printf("\t[SUCCESS]\n");
     printf("\t\t* Convolving source and zero-mean centered image...");
     wr = templateROWS; wc = templateCOLS; dr = wr/2; dc = wc/2;
     for (r = dr; r < sourceROWS - dr; r++)
@@ -184,6 +166,7 @@ int main(int argc, char* argv[])
 
     for (i = 0; i < sourceROWS * sourceCOLS; i++)
     {
+        // https://en.wikipedia.org/wiki/Normalization_(image_processing)
         MSF_Normalized[i] = (MSF[i] - min) * 255 / (max - min);
     }
 
@@ -200,56 +183,37 @@ int main(int argc, char* argv[])
     /*           d) Output the total FP and TP for each T                                          */
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
     
-    int found = False, T = 150; // Threshold
-    
     printf("Step 4:\n"); printf("Creating a binary image using the threshold...");
-    printf("\t* Creating result image"); result = createImage(sourceCOLS * sourceROWS); printf("\t[SUCCESS]\n");
+    printf("\n\t* Allocating space for result image"); 
+    thresholdImage = createImage(sourceCOLS * sourceROWS); printf("\t[SUCCESS]\n");
+    char outStr[20];
 
-    for (r = 7; r < sourceROWS - 7; r += 2 * 7 + 1) {
-        for (c = 4; c < sourceCOLS - 4; c += 2 * 4 + 1) {
-            for (filterRow = -7; filterRow <= 7; filterRow++) {
-                for (filterCol = -4; filterCol <= 4; filterCol++) {
-                    if ((int)MSF_Normalized[(r + filterCol) * sourceCOLS + (c + filterCol)] >= T) {
-                        found = True;
-
-                    }
+    printf("\t* Loop over the MSF image with threshold values from 0 to %d incrementing by 10...\n", T);
+    for (i = 0; i <= T; i++, TP = 0, FP = 0)
+    {
+        // Part a: Generate binary image using threshold
+        for (int pixel = 0; pixel < sourceCOLS * sourceROWS; pixel++)
+        {
+            thresholdImage[pixel] = MSF_Normalized[pixel] >= i ? (unsigned char)255 : (unsigned char)0;
+        }
+        
+        // Part b: Looping through the ground truth letter locations
+        for (j = 0; j <= fileRows; j++, found = False)
+        {
+            for (filterRow = truth[j].y - dr; filterRow <= truth[j].y + dr; filterRow++)
+            {
+                for (filterCol = truth[j].x - dc; filterCol <= truth[j].x + dc; filterCol++)
+                {
+                    // i) found a 255 pixel within a 9x15 area of x,y                           | Check to see if it's already true
+                    found = (thresholdImage[filterRow * sourceCOLS + filterCol] == 255) ? True : (found == True) ? True : False;
                 }
             }
-            result[r * sourceCOLS + c] = found == True ? 255 : 0;
-            found = False;
+            // Part c: If we find a 255 pixel and it's actually e then TP. Otherwise we find something that's not e it's a FP
+            truth[j].letter == 'e' ? (found == True ? TP++ : TP) : (found == True ? FP++ : FP);
         }
+        printf("Threshold [%3d] : TP = %4d\t| FP = %4d\n", i, TP, FP);
     }
-
-    fpt = fopen("result.ppm", "w");
-    fprintf(fpt, "P5 %d %d 255\n", sourceCOLS, sourceROWS);
-    fwrite(result, sourceCOLS * sourceROWS, 1, fpt);
-    fclose(fpt);
-
-    fpt = fopen("MSF_Normalized.ppm", "w");
-    fprintf(fpt, "P5 %d %d 255\n", sourceCOLS, sourceROWS);
-    fwrite(MSF_Normalized, sourceCOLS * sourceROWS, 1, fpt);
-    fclose(fpt);
-
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-    
-    // Clean Up : Release all memory we allocated (I forgot to do this in lab 1 :clown:)
-    free(sourceImage);
-    free(templateImage);
-    free(result);
-    free(truth);
-}
-
-/// <summary>
-/// getPixelValue only has one purpose. It is designed to get the integer pixel value at a row and column
-/// </summary>
-/// <param name="rows"></param>
-/// <param name="columns"></param>
-/// <param name="COLS"> Number of columns in the source image </param>
-/// <param name="image"> Image we're interested in getting the pixel value of</param>
-/// <returns></returns>
-int getPixelValue(int rows, int columns, int COLS, unsigned char* image) 
-{
-    return image[columns + rows * COLS];
 }
 
 /// <summary>
