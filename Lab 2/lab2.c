@@ -12,7 +12,7 @@
     * parenthood_gt.txt
 
    Bugs:
-    * 
+    * Currently none
 */
 
 #define True 1
@@ -46,8 +46,8 @@ int main(int argc, char* argv[])
     char sourceHeader[320], templateHeader[320], temp, letter;
     int temp1, temp2, fileRows = 0; // Number of rows in the ground truth file
     int i = 0, j = 0, mean = 0, sourceROWS, sourceCOLS, templateROWS, templateCOLS, filterRow, filterCol;
-    int r, c, dr, dc, wr, wc, average, min, max, found = False, TP, FP;
-    FILE* fpt;
+    int r, c, dr, dc, wr, wc, average, min, max, found = False, TP, FP, maxTP, maxT;
+    FILE* fpt, *TPFPfpt;
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
     /*                      STEP 1: Read in source, template and ground truth                      */
@@ -83,13 +83,18 @@ int main(int argc, char* argv[])
         fpt = fopen(argv[3], "r");
         fpt == NULL ? printf("Failed to open %s\n", argv[3]), exit(0) : printf("\t[SUCCESS]\n");
     }
+    else
+    {
+        printf("Incorrect number of arguments...\nUsage: ./lab2 (sourceImage.ppm) (templateImage.ppm) (groundTruth.txt)\n");
+        exit(0);
+    }
 
     while ((i = fscanf(fpt, "%c %d %d\n", &temp, &temp1, &temp2)) && !feof(fpt))
         if (i == 3) fileRows += 1;
     printf("\t* Found %d number of rows in the ground truth file\n", fileRows);
 
     printf("\t* Allocating space for ground truth file...");
-    truth = calloc(fileRows, sizeof(struct groundTruth)); printf("\n\t[SUCCESS]\n");
+    truth = calloc(fileRows, sizeof(struct groundTruth)); printf("\t[SUCCESS]\n");
 
     rewind(fpt); // Return to the beginning of the file
     printf("\t* Scanning in values from ground truth file...");
@@ -187,6 +192,7 @@ int main(int argc, char* argv[])
     printf("\n\t* Allocating space for result image"); 
     thresholdImage = createImage(sourceCOLS * sourceROWS); printf("\t[SUCCESS]\n");
     char outStr[20];
+    TPFPfpt = fopen("TPFP.txt", "w"); TPFPfpt == NULL ? (printf("Failed to open TPFP.txt.\n"), exit(0)) : TPFPfpt;
 
     printf("\t* Loop over the MSF image with threshold values from 0 to %d incrementing by 10...\n", T);
     for (i = 0; i <= T; i++, TP = 0, FP = 0)
@@ -211,8 +217,36 @@ int main(int argc, char* argv[])
             // Part c: If we find a 255 pixel and it's actually e then TP. Otherwise we find something that's not e it's a FP
             truth[j].letter == 'e' ? (found == True ? TP++ : TP) : (found == True ? FP++ : FP);
         }
-        printf("Threshold [%3d] : TP = %4d\t| FP = %4d\n", i, TP, FP);
+        // Part d: Outputting the total FP and TP for each T value ranging from 0 to 255
+        fprintf(TPFPfpt, "Threshold [%3d] : TP = %4d\t| FP = %4d\n", i, TP, FP);
+        
+        // Find the threshold that gives us the larges amount of TP
+        if (T == 0)
+        {
+            maxTP = TP;
+            maxT = i;
+        }
+        else if (TP >= maxTP)
+        {
+            maxTP = TP;
+            maxT = i;
+        }
     }
+
+    // Generating the ideal image using the threshold value with the most TP
+    printf("\t* Generating the ideal OCR image using threshold value [%d]...", maxT);
+    for (int pixel = 0; pixel < sourceCOLS * sourceROWS; pixel++)
+    {
+        thresholdImage[pixel] = MSF_Normalized[pixel] >= maxT ? (unsigned char)255 : (unsigned char)0;
+    }
+    printf("\t[SUCCESS]\n");
+    printf("\t* Sending result image to idealImage.ppm...");
+    fpt = fopen("idealImage.ppm", "w");
+    fprintf(fpt, "P5 %d %d 255\n", sourceCOLS, sourceROWS);
+    fwrite(thresholdImage, sourceCOLS * sourceROWS, 1, fpt);
+    fclose(fpt);
+    printf("\t[SUCCESS]\n");
+
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 }
 
