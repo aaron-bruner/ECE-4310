@@ -4,7 +4,7 @@ lab1: lab3.o
 	gcc -o lab3 lab3.o
 
 gdb:
-	gcc -o lab3 lab3.o -g
+	gcc lab3.c -g -o lab3
 
 clean:
 	rm -f lab3 lab3.o

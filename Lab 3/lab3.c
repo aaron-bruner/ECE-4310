@@ -35,6 +35,7 @@ unsigned char* readImage( int* ROWS, int* COLS, char* source);
 unsigned char* createImage(int size);
 void thin(unsigned char* srcImage);
 void edgeNonEdgeTransitions(unsigned char* img, int *transitions, int *neighbors, int *passNum4, int r, int c);
+void branchEndPoints(unsigned char* img, int* isE);
 
 char* sourceImageDir    = "parenthood.ppm";
 char* templateImageDir  = "parenthood_e_template.ppm";
@@ -43,13 +44,13 @@ char* msfeImageDir      = "msf_e.ppm";
 
 int main(int argc, char* argv[])
 {
-    unsigned char* sourceImage, *thinResult, *templateImage, *msf_eImage, *zeroMeanImage, *MSF_Normalized, *thresholdImage;
-    int* templateMSF, *MSF;
+    unsigned char* sourceImage, *templateImage, *msf_eImage, *thresholdImage;
     struct groundTruth* truth;
-    char sourceHeader[320], templateHeader[320], temp, letter;
+    char temp, gtLetter;
     int temp1, temp2, fileRows = 0; // Number of rows in the ground truth file
-    int i = 0, j = 0, mean = 0, sourceROWS, sourceCOLS, templateROWS, templateCOLS, filterRow, filterCol, msfe_ROWS, msfe_COLS;
-    int r, c, dr = 7, dc = 4, wr = 7, wc = 4, average, min, max, found = False, TP, FP, maxTP, maxT, threshLocation, isE = False;
+    int r, c, i = 0, j = 0, sourceROWS, sourceCOLS, templateROWS, templateCOLS, msfe_ROWS, msfe_COLS;
+    int dr = 7, dc = 4, found = False, TP = 0, FP = 0, threshLocation = 0, isE = False, endBranch = 0, eRows = 15, eCols = 9;
+    int gtR = 0, gtC = 0, index = 0, end = 0, branch = 0;
     FILE* fpt, *TPFPfpt;
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
@@ -58,21 +59,21 @@ int main(int argc, char* argv[])
     /*      * User provides 4 arguments  (argc == 5) then we open provided files                   */
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-    printf("Step 1:\n");
+    //printf("Step 1:\n");
     if (argc == 1) {
-        printf("Performing matched filter on images [%s] and [%s] using ground truth [%s] and MSF image [%s]\n", sourceImageDir, templateImageDir, groundTruthDir, msfeImageDir);
+        //printf("Performing matched filter on images [%s] and [%s] using ground truth [%s] and MSF image [%s]\n", sourceImageDir, templateImageDir, groundTruthDir, msfeImageDir);
 
-        printf("\t* Reading in source image...");
-        sourceImage = readImage(&sourceROWS, &sourceCOLS, sourceImageDir); printf("\t[SUCCESS]\n");
-        printf("\t* Reading in template image...");
-        templateImage = readImage(&templateROWS, &templateCOLS, templateImageDir); printf("\t[SUCCESS]\n");
-        printf("\t* Reading in MSF_e image...");
-        msf_eImage = readImage(&msfe_ROWS, &msfe_COLS, msfeImageDir); printf("\t[SUCCESS]\n");
+        //printf("\t* Reading in source image...");
+        sourceImage = readImage(&sourceROWS, &sourceCOLS, sourceImageDir); //printf("\t[SUCCESS]\n");
+        //printf("\t* Reading in template image...");
+        templateImage = readImage(&templateROWS, &templateCOLS, templateImageDir); //printf("\t[SUCCESS]\n");
+        //printf("\t* Reading in MSF_e image...");
+        msf_eImage = readImage(&msfe_ROWS, &msfe_COLS, msfeImageDir); //printf("\t[SUCCESS]\n");
 
         // Read in CSV/TXT file
-        printf("\t* Opening ground truth file...");
+        //printf("\t* Opening ground truth file...");
         fpt = fopen(groundTruthDir, "r");
-        fpt == NULL ? printf("Failed to open %s\n", groundTruthDir), exit(0) : printf("\t[SUCCESS]\n");
+        //fpt == NULL ? printf("Failed to open %s\n", groundTruthDir), exit(0) : printf("\t[SUCCESS]\n");
     }
     else if (argc == 5)
     {
@@ -98,19 +99,19 @@ int main(int argc, char* argv[])
 
     while ((i = fscanf(fpt, "%c %d %d\n", &temp, &temp1, &temp2)) && !feof(fpt))
         if (i == 3) fileRows += 1;
-    printf("\t* Found %d number of rows in the ground truth file\n", fileRows);
-
-    printf("\t* Allocating space for ground truth file...");
-    truth = calloc(fileRows, sizeof(struct groundTruth)); printf("\t[SUCCESS]\n");
+    //printf("\t* Found %d number of rows in the ground truth file\n", fileRows);
+    fileRows++;
+    //printf("\t* Allocating space for ground truth file...");
+    truth = calloc(fileRows, sizeof(struct groundTruth)); //printf("\t[SUCCESS]\n");
 
     rewind(fpt); // Return to the beginning of the file
-    printf("\t* Scanning in values from ground truth file...");
+    //printf("\t* Scanning in values from ground truth file...");
     for (i = 0; i <= fileRows && !feof(fpt); i++)
     {
         fscanf(fpt, "%c %d %d\n", &truth[i].letter, &truth[i].x, &truth[i].y);
     }
     fclose(fpt);
-    printf("\t[Read in %d rows]\n", i - 1);
+    //printf("\t[Read in %d rows]\n", i - 1);
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
     /*    STEP 2: Looping through the following steps for a range of T                             */
@@ -132,68 +133,48 @@ int main(int argc, char* argv[])
     /*      c) Output the total TP and FP for each T.                                              */
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-    //char buff[12];
-
-    printf("Step 2:\n");
-    thresholdImage = createImage(templateCOLS * templateROWS);
-    thinResult = createImage(templateCOLS * templateROWS);
+    //printf("Step 2:\n");
+    thresholdImage = createImage(eCols * eRows);
     // Open to write to clear file
-    TPFPfpt = fopen("TPFP.txt", "w"); TPFPfpt == NULL ? (printf("Failed to open TPFP.txt.\n"), exit(0)) : TPFPfpt; fclose(TPFPfpt);
+    TPFPfpt = fopen("TPFP.txt", "w"); TPFPfpt == NULL ? (printf("Failed to open TPFP.txt.\n"), exit(0)) : TPFPfpt;
 
-    printf("\t* Loop over the MSF image with threshold values from 0 to %d incrementing by 10...\n", T);
-    for (i = 0, threshLocation = 0; i <= T; i++, TP = 0, FP = 0, threshLocation = 0)
+    unsigned char* thinImage = createImage(eCols*eRows);
+
+    // Threshold values
+    for (i = 0; i <= T; i++, branch = end = TP = FP = found = isE = False)
     {
-        // Part a: Looping through the ground truth letter locations
-        for (j = 0; j <= fileRows; j++, found = False, isE = False)
+        // File rows from the GT
+        for (j = 0; j < fileRows; j++, index = 0)
         {
-            for (filterRow = truth[j].y - dr; filterRow <= truth[j].y + dr; filterRow++)
-            {
-                for (filterCol = truth[j].x - dc; filterCol <= truth[j].x + dc; filterCol++, threshLocation++)
-                {
-                    // i) found a pixel > threshold within a 9x15 area of x,y             | Check to see if it's already true
-                    found = (msf_eImage[filterRow * sourceCOLS + filterCol] > i) ? True : (found == True) ? True : False;
+            gtLetter = truth[j].letter; gtR = truth[j].y; gtC = truth[j].x;
 
-                    // Part iii)
-                    thresholdImage[threshLocation] = sourceImage[filterRow * sourceCOLS + filterCol];
-                    //printf("Writing %d to [%d,%d]\n", sourceImage[filterRow * sourceCOLS + filterCol], filterRow, filterCol);
+            // iii)
+            for (r = -dr; r <= dr; r++)
+            {
+                for (c = -dc; c <= dc; c++, index++)
+                {
+                    if (msf_eImage[(r + gtR) * msfe_COLS + (c + gtC)] > i) found = True;
+                    thresholdImage[index] = (unsigned char)sourceImage[(r + gtR) * sourceCOLS + (c + gtC)];
                 }
             }
-            // Part ii) Skip all of this if we never found a letter 
-            // This doesn't mean the letter is 'e' it just means we found something that wasn't space
-            if (found)
-            {
-                // Part iv)
-                for (int pixel = 0; pixel < templateCOLS * templateROWS; pixel++)
-                {
-                    thresholdImage[pixel] = thresholdImage[pixel] > 128 ? (unsigned char)255 : (unsigned char)0;
-                }
 
-                // Part v)
-                thin(thresholdImage);
+            // iv)
+            for (index = 0; index < eRows * eCols; index++) thresholdImage[index] = thresholdImage[index] > 128 ? 0 : 255;
 
-                //snprintf(buf, 12, "pre_%d_suff", i); // puts string into buffer
-                //fpt = fopen(".ppm", "w");
-                //fprintf(fpt, "P5 %d %d 255\n", sourceCOLS, sourceROWS);
-                //fwrite(thresholdImage, sourceCOLS * sourceROWS, 1, fpt);
-                //fclose(fpt);
+            // v)
+            thin(thresholdImage);
 
-                // Part vi)
-                branchEndPoints(thresholdImage, &isE);
+            // vi)
+            branchEndPoints(thresholdImage, &isE);
 
-
-            }
+            // b)
+            found ? (gtLetter == 'e' ? TP++ : FP++) : (isE ? (gtLetter == 'e' ? TP++ : TP) : FP);
         }
+        // c)
+        fprintf(TPFPfpt, "Threshold[%d] TP = %d FP = %d\n", i, TP, FP);
     }
+
     fclose(TPFPfpt);
-
-    //printf("\t[SUCCESS]\n");
-    //printf("\t* Sending result image to idealImage.ppm...");
-    //fpt = fopen("idealImage.ppm", "w");
-    //fprintf(fpt, "P5 %d %d 255\n", sourceCOLS, sourceROWS);
-    //fwrite(thresholdImage, sourceCOLS * sourceROWS, 1, fpt);
-    //fclose(fpt);
-    //printf("\t[SUCCESS]\n");
-
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 }
 
@@ -208,8 +189,9 @@ int main(int argc, char* argv[])
 /// <param name="srcImage">The source image which is a 9x15 which contains a letter to be thinned</param>
 void thin(unsigned char* srcImage)
 {
-    const int rowE = 15, colE = 9, ON = 255, OFF = 0;
-    int erasure = True, transitionCount, neighborCount, passNum4;
+    const int rowE = 15, colE = 9;
+    const unsigned char ON = 255, OFF = 0;
+    int erasure = True, transitionCount = 0, neighborCount = 0, passNum4 = 0;
     unsigned char* copy = createImage(rowE * colE);
 
     //Lecture notes: Edge properties | Describes the Zhang-Suen thinning algorithm
@@ -220,7 +202,7 @@ void thin(unsigned char* srcImage)
     //1. Pass through the image looking at each pixel X.
     do
     {
-        for (int i = 0; i < rowE * colE; i++) copy[i] = 0; // Reset the copy image to all black pixels
+        for (int i = 0; i < rowE * colE; i++) copy[i] = (unsigned char)0; // Reset the copy image to all black pixels
         erasure = False; // Only repeat if we find a marked pixel
 
         for (int r = 1; r < rowE; r++)
@@ -229,8 +211,7 @@ void thin(unsigned char* srcImage)
             {
                 //2. Count the number of edge->non-edge transitions in CW (or CCW) order around the pixel X (r,c)
                 // Only need to check pixes that are ON
-                if (srcImage[r * colE + c] == ON) edgeNonEdgeTransitions(srcImage, &transitionCount, &neighborCount, &passNum4, r, c);
-
+                if (srcImage[r * colE + c] != OFF) edgeNonEdgeTransitions(srcImage, &transitionCount, &neighborCount, &passNum4, r, c);
                 //5. The edge pixel is marked for erasure if it has
                 //      a) exactly 1 edge->non - edge transition,
                 //      b) 2 <= edge neighbors <= 6, and
@@ -243,7 +224,6 @@ void thin(unsigned char* srcImage)
                 }
             }
         }
-
         //6. Once all pixels have been scanned, erase those marked, and repeat
         //      (back to step 1) until no pixels are marked for erasure.
         for (int index = 0; index < colE * rowE; index++)
@@ -251,20 +231,74 @@ void thin(unsigned char* srcImage)
             copy[index] == ON ? srcImage[index] = OFF : False;
         }
     } while (erasure == True);
-
-    // Free the copy image
-    free(copy);
     return;
 }
 
 /// <summary>
-/// 
+/// Determining if the letter is 'e' if it has one end and one branch
 /// </summary>
-/// <param name="thresholdImage"></param>
-/// <param name="isE"></param>
-void branchEndPoints(unsigned char *thresholdImage, int *isE)
+/// <param name="img">The image of the letter in which we are scanning</param>
+/// <param name="isE">Logical bool which is either true if the letter is 'e' and false if it is not</param>
+void branchEndPoints(unsigned char* img, int *isE)
 {
+    const int rowE = 15, colE = 9;
+    const unsigned char ON = 255, OFF = 0;
+    int edge = 0, last = False, branch = 0, end = 0;
+    unsigned char N = OFF, E = OFF, S = OFF, W = OFF, NE = OFF, SE = OFF, SW = OFF, NW = OFF;
 
+    //Lecture notes: Edge properties
+    // P9   P2  P3      _   A   _
+    // P8   P1  P4      C   X   B
+    // P7   P6  P5      _   D   _
+    for (int r = 1; r < rowE; r++)
+    {
+        for (int c = 1; c < colE; c++, edge = 0)
+        {
+            //2. Count the number of branch and end points in CW (or CCW) order around the pixel X (r,c)
+            // Only need to check pixes that are ON
+            if (img[r * colE + c] == ON)
+            {
+                // Checking in a clockwise rotation of the following image (r,c)
+                // NW  N  NE    |   (-1,-1)  (-1,0)  (-1,+1)    |   (-9,-1)  (-9,0)  (-9,+1)
+                //  W  X  E     |   ( 0,-1)  (0, 0)  ( 0,+1)    |   ( 0,-1)  (0, 0)  ( 0,+1)
+                // SW  S  SE    |   (+1,-1)  (+1,0)  (+1,+1)    |   (+9,-1)  (+9,0)  (+9,+1)
+                //  We'll check North -> North East -> East -> South East -> South -> South West -> West -> North West
+                //  Moving up one row = -9  |   Moving down one row = +9    |   Moving left = -1    |   Moving right = +1
+                N = img[(r - 1) * colE + c];  NE = img[(r - 1) * colE + (c + 1)];
+                E = img[r * colE + (c + 1)];  SE = img[(r + 1) * colE + (c + 1)];
+                S = img[(r + 1) * colE + c];  SW = img[(r + 1) * colE + (c - 1)];
+                W = img[r * colE + (c - 1)];  NW = img[(r - 1) * colE + (c - 1)];
+
+                //3. Count the number of edge neighbor pixels
+                // Check N  edges
+                N  == ON ? last = True : (last = False);
+                // Check NE edges
+                NE == ON ? last = True : ((last == True ? edge++ : edge), last = False);
+                // Check E edges
+                E  == ON ? last = True : ((last == True ? edge++ : edge), last = False);
+                // Check SE edges
+                SE == ON ? last = True : ((last == True ? edge++ : edge), last = False);
+                // Check S  edges
+                S  == ON ? last = True : ((last == True ? edge++ : edge), last = False);
+                // Check SW edges
+                SW == ON ? last = True : ((last == True ? edge++ : edge), last = False);
+                // Check W  edges
+                W  == ON ? last = True : ((last == True ? edge++ : edge), last = False);
+                // Check NW edges
+                NW == ON ? last = True : ((last == True ? edge++ : edge), last = False);
+                // Check NW -> N edges
+                N && last ? edge++ : edge;
+
+                // https://stackoverflow.com/questions/63938495/branch-points-of-the-skeleton
+                // Endpoint     -- has exactly   one edge->non-edge transition
+                // Branchpoint  -- has more than two edge->non-edge transitions
+                edge == 1 ? end++ : end;
+                edge > 2 ? branch++ : branch;
+            }
+        }
+    }
+    // Part vii)
+    (end == 1 && branch == 1) ? *isE = True : (*isE = False);
 
     return;
 }
@@ -279,35 +313,40 @@ void branchEndPoints(unsigned char *thresholdImage, int *isE)
 /// <param name="c"></param>
 void edgeNonEdgeTransitions(unsigned char* img, int *transitions, int *neighbors, int *passNum4, int r, int c)
 {
-    const int COLS = 9, ON = 255, OFF = 0; int last = False;
+    const int COLS = 9;
+    const unsigned char ON = 255, OFF = 0;
+    int last = False;
+    unsigned char N = OFF, E = OFF, S = OFF, W = OFF, NE = OFF, SE = OFF, SW = OFF, NW = OFF;
     // Checking in a clockwise rotation of the following image (r,c)
     // NW  N  NE    |   (-1,-1)  (-1,0)  (-1,+1)    |   (-9,-1)  (-9,0)  (-9,+1)
     //  W  X  E     |   ( 0,-1)  (0, 0)  ( 0,+1)    |   ( 0,-1)  (0, 0)  ( 0,+1)
     // SW  S  SE    |   (+1,-1)  (+1,0)  (+1,+1)    |   (+9,-1)  (+9,0)  (+9,+1)
     //  We'll check North -> North East -> East -> South East -> South -> South West -> West -> North West
     //  Moving up one row = -9  |   Moving down one row = +9    |   Moving left = -1    |   Moving right = +1
-    const char N = img[(r-1) * COLS + c], NE = img[(r-1) * COLS + (c+1)],
-               E = img[r * COLS + (c+1)], SE = img[(r+1) * COLS + (c+1)],
-               S = img[(r+1) * COLS + c], SW = img[(r+1) * COLS + (c-1)],
-               W = img[r * COLS + (c-1)], NW = img[(r-1) * COLS + (c-1)];
+    N = img[(r - 1) * COLS + c]; NE = img[(r - 1) * COLS + (c + 1)];
+    E = img[r * COLS + (c + 1)]; SE = img[(r + 1) * COLS + (c + 1)];
+    S = img[(r + 1) * COLS + c]; SW = img[(r + 1) * COLS + (c - 1)];
+    W = img[r * COLS + (c - 1)]; NW = img[(r - 1) * COLS + (c - 1)];
 
     //3. Count the number of edge neighbor pixels
     // Check N  edges
-    (N  == ON ? (*(neighbors++), last = True) : (last = False));
+    N  == ON ? ((*neighbors)++, last = True) : (last = False);
     // Check NE edges
-    (NE == ON ? (*(neighbors++), last = True) : (last == True ? *(transitions++) : (last = False)));
+    NE == ON ? ((*neighbors)++, last = True) : ((last == True ? (*transitions)++ : *transitions), last = False);
+    // Check E edges
+    E  == ON ? ((*neighbors)++, last = True) : ((last == True ? (*transitions)++ : *transitions), last = False);
     // Check SE edges
-    (SE == ON ? (*(neighbors++), last = True) : (last == True ? *(transitions++) : (last = False)));
+    SE == ON ? ((*neighbors)++, last = True) : ((last == True ? (*transitions)++ : *transitions), last = False);
     // Check S  edges
-    (S  == ON ? (*(neighbors++), last = True) : (last == True ? *(transitions++) : (last = False)));
+    S  == ON ? ((*neighbors)++, last = True) : ((last == True ? (*transitions)++ : *transitions), last = False);
     // Check SW edges
-    (SW == ON ? (*(neighbors++), last = True) : (last == True ? *(transitions++) : (last = False)));
+    SW == ON ? ((*neighbors)++, last = True) : ((last == True ? (*transitions)++ : *transitions), last = False);
     // Check W  edges
-    (W  == ON ? (*(neighbors++), last = True) : (last == True ? *(transitions++) : (last = False)));
+    W  == ON ? ((*neighbors)++, last = True) : ((last == True ? (*transitions)++ : *transitions), last = False);
     // Check NW edges
-    (NW == ON ? (*(neighbors++), last = True) : (last == True ? *(transitions++) : (last = False)));
+    NW == ON ? ((*neighbors)++, last = True) : ((last == True ? (*transitions)++ : *transitions), last = False);
     // Check NW -> N edges
-    (N && last ? *(transitions++) : *(transitions));
+    (N && last) ? (*transitions)++ : (*transitions);
     //4. Check that at least one of the North, East, or (West and South) are not edge pixels
     //      A or B or (C and D) != edge
     (N == OFF || E == OFF || (S == OFF && W == OFF)) ? (*passNum4 = True) : (*passNum4 = False);
