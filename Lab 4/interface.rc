@@ -1,0 +1,180 @@
+// Microsoft Visual C++ generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#include <windows.h>
+
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// English (United States) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+#pragma code_page(1252)
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE 
+BEGIN
+    "#include <windows.h>\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE 
+BEGIN
+    "\r\n"
+    "\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Menu
+//
+
+ID_MAIN_MENU MENU
+BEGIN
+    POPUP "File"
+    BEGIN
+        MENUITEM "&Load Image",                 ID_FILE_LOAD
+        MENUITEM SEPARATOR
+        MENUITEM "&Quit",                       ID_FILE_QUIT
+    END
+    POPUP "Display"
+    BEGIN
+        MENUITEM "Show pixel coordinates",      ID_SHOWPIXELCOORDS
+        MENUITEM "Show Original Image",         ID_DISPLAY_SHOWORIGINALIMAGE
+    END
+    POPUP "Region Grow"
+    BEGIN
+        MENUITEM "Absolute Difference",         ID_REGIONGROW_ABSOLUTEDIFFERENCE
+        MENUITEM "Centroid Distance",           ID_REGIONGROW_CENTROIDDISTANCE
+        MENUITEM SEPARATOR
+        POPUP "Grow Style"
+        BEGIN
+            MENUITEM "Play",                        ID_GROWSTYLE_PLAY
+            MENUITEM "Step",                        ID_GROWSTYLE_STEP
+        END
+        POPUP "Color"
+        BEGIN
+            MENUITEM "Red",                         ID_COLOR_RED
+            MENUITEM "Green",                       ID_COLOR_GREEN
+            MENUITEM "Blue",                        ID_COLOR_BLUE
+        END
+    END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+ID_PLUS_ICON            ICON                    "icon1.ico"
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+    IDD_DISTANCE, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 182
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 55
+    END
+
+    IDD_DIFFERENCE, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 182
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 55
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_DISTANCE DIALOGEX 0, 0, 189, 62
+STYLE DS_SETFONT | DS_MODALFRAME | DS_3DLOOK | DS_CENTER | DS_CENTERMOUSE | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Centroid Distance"
+FONT 11, "Microsoft Sans Serif", 700, 0, 0x0
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,119,15,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,119,33,50,14
+    CONTROL         "Please enter centroid distance",IDC_STATIC,"Static",SS_SIMPLE | SS_CENTERIMAGE | WS_GROUP,15,15,98,8
+    EDITTEXT        IDC_CENTROID_DISTANCE,15,27,93,20,ES_CENTER | ES_AUTOHSCROLL
+END
+
+IDD_DIFFERENCE DIALOGEX 0, 0, 189, 62
+STYLE DS_SETFONT | DS_MODALFRAME | DS_3DLOOK | DS_CENTER | DS_CENTERMOUSE | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Absolute Difference"
+FONT 11, "Microsoft Sans Serif", 700, 0, 0x0
+BEGIN
+    DEFPUSHBUTTON   "OK",IDOK,119,15,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,119,33,50,14
+    CONTROL         "Please enter absolute difference",IDC_STATIC,"Static",SS_SIMPLE | SS_CENTERIMAGE | WS_GROUP,15,15,98,8
+    EDITTEXT        IDC_ABS_DIFFERENCE,15,27,93,20,ES_CENTER | ES_AUTOHSCROLL
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// AFX_DIALOG_LAYOUT
+//
+
+IDD_DISTANCE AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+IDD_DIFFERENCE AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+#endif    // English (United States) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+
+
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+
