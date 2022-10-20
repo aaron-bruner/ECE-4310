@@ -97,6 +97,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     return (msg.wParam);
 }
 
+// https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes#creating-a-modeless-dialog-box
 // Absolute difference
 LRESULT CALLBACK WndProcDiff(HWND hWnd, UINT uMsg,
     WPARAM wParam, LPARAM lParam)
@@ -119,6 +120,7 @@ LRESULT CALLBACK WndProcDiff(HWND hWnd, UINT uMsg,
     return (0L);
 }
 
+// https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes#creating-a-modeless-dialog-box
 // Centroid Distance
 LRESULT CALLBACK WndProcDist(HWND hWnd, UINT uMsg,
     WPARAM wParam, LPARAM lParam)
@@ -207,6 +209,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg,
             color = 3;
             break;
 
+        // https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes#creating-a-modal-dialog-box
         case ID_REGIONGROW_ABSOLUTEDIFFERENCE:
             DialogBox(NULL, MAKEINTRESOURCE(IDD_DIFFERENCE), hWnd, WndProcDiff);
             break;
