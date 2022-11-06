@@ -452,3 +452,6 @@ FodyWeavers.xsd
 *.sln.iml
 *.vsidx
 *.lock
+*.db-shm
+*.db-wal
+*.sqlite
