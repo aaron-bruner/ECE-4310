@@ -1,4 +1,4 @@
-﻿/* File  : lab5.c
+/* File  : lab5.c
    Author: Aaron Bruner
    Class : ECE - 4310 : Introduction to Computer Vision
    Term  : Fall 2022
@@ -53,7 +53,8 @@ char* contoursPointsDir = "hawk_init.txt";
 
 int main(int argc, char* argv[])
 {
-    unsigned char* sourceImage, *sourceWithContours, *normalizedImage;
+    unsigned char* sourceImage, *sourceWithContours, *normalizedImage, *result;
+    char resultStr[40];
     int* gradientImage;
     struct contourPoints* contours;
     struct contourPoints* newContours;
@@ -141,7 +142,6 @@ int main(int argc, char* argv[])
     newContours = calloc(fileRows, sizeof(struct contourPoints));
 
     float* invertedSobel = (float*)calloc(sourceCOLS * sourceROWS, sizeof(float));
-    unsigned char* result = createImage(sourceCOLS * sourceROWS);
 
     //INVERT
     for (int h = 0; h < sourceCOLS * sourceROWS; h++)
@@ -149,45 +149,19 @@ int main(int argc, char* argv[])
         invertedSobel[h] = (float)maxtwo - sobelImage[h];
     }
 
-    int a = 0;
-
-    do
+    for (int rover = 0; rover < roverMAX; rover++, avgDist = 0)
     {
         // Calculate the average distance
-        float temp1 = 0.0, temp2 = 0.0;
-        avgDist = 0;
-
-        //printf("[%d]\n", counter);
-
-        for (a = 0; a < fileRows - 1; a++)
+        for (int a = 0; a < fileRows; a++)
         {
-            temp1 = SQR(contours[a].x - contours[a+1].x);
-            temp2 = SQR(contours[a].y - contours[a+1].y);
-            //printf("\t%f %f\t\t%d %d\n", temp1, temp2, contours[a].x, contours[a].y);
-
-            avgDist += sqrt(temp1 + temp2);
             newContours[a].x = newContours[a].y = 0;
 
-            //avgDist += sqrt(SQR(contours[a].y - contours[a == (fileRows - 1) ? 0 : (a + 1)].y) + SQR(contours[a].x - contours[a == (fileRows - 1) ? 0 : (a + 1)].x));
-            //avgDist = (a == (fileRows - 1)) ? avgDist / fileRows : avgDist;
+            avgDist += sqrt(SQR(contours[a].y - contours[a == (fileRows - 1) ? 0 : (a + 1)].y) + SQR(contours[a].x - contours[a == (fileRows - 1) ? 0 : (a + 1)].x));
+            avgDist = (a == (fileRows - 1)) ? avgDist / fileRows : avgDist;
         }
-        temp1 = SQR(contours[a].x - contours[0].x);
-        temp2 = SQR(contours[a].y - contours[0].y);
-        newContours[a].x = newContours[a].y = 0;
-
-        avgDist += sqrt(temp1+temp2);
-        avgDist = avgDist / fileRows;
-
-        //printf("\t%f %f\t\t%d %d\t%f\n", temp1, temp2, contours[a].x, contours[a].y, avgDist);
 
         for (int b = 0; b < fileRows; b++)
         {
-            // Empty energy variables
-            for (int c = 0; c < fileRows; c++)
-            {
-                inEnergyOne[c] = inEnergyTwo[c] = exEnergy[c] = totalEnergy[c] = 0;
-            }
-
             // Calculate the energy
             for (r = -3; r <= 3; r++)
             {
@@ -196,7 +170,6 @@ int main(int argc, char* argv[])
                     inEnergyOne[(r + 3) * 7 + (c + 3)] = SQR((contours[b].y + r) - contours[b == (fileRows - 1) ? 0 : (b + 1)].y) + SQR((contours[b].x + c) - contours[b == (fileRows - 1) ? 0 : (b + 1)].x);
                     inEnergyTwo[(r + 3) * 7 + (c + 3)] = SQR(sqrt(inEnergyOne[(r + 3) * 7 + (c + 3)]) - avgDist);
                        exEnergy[(r + 3) * 7 + (c + 3)] = SQR(invertedSobel[(contours[b].y + r) * sourceCOLS + (contours[b].x + c)]);
-                    //printf("[%d] %f (%f | %d) %f\n", (r+3)*7+(c+3), inEnergyOne[(r + 3) * 7 + (c + 3)], inEnergyTwo[(r + 3) * 7 + (c + 3)], (r + 3) * 7 + (c + 3), exEnergy[(r + 3) * 7 + (c + 3)]);
                 }
             }
 
@@ -213,28 +186,22 @@ int main(int argc, char* argv[])
                 (d == 0) ? min = totalEnergy[d] : (totalEnergy[d] < min ? min = totalEnergy[d], location = d : false);
             }
 
-            //printf("Total Energy [%d] %f\n", b, totalEnergy[b]);
-
             // Now that we have the total energy and location we can find new contour positions
             double temp = (double)location / 7;
             temp > 3 ? newContours[b].x = contours[b].y + abs(temp - 3) : (temp < 3 ? newContours[b].x = contours[b].y - abs(temp - 3) : (newContours[b].x = contours[b].y));
                   temp = (int)(location % 7);
             temp > 3 ? newContours[b].y = contours[b].x + abs(temp - 3) : (temp < 3 ? newContours[b].y = contours[b].x - abs(temp - 3) : (newContours[b].y = contours[b].x));
-
-            //printf("COL : %d\tROW : %d\n", newContours[b].x, newContours[b].y);
-
         }
 
-        // Apply changes made above
+        // Update the location of the contours
         for (int e = 0; e < fileRows; e++)
         {
             contours[e].x = newContours[e].y;
             contours[e].y = newContours[e].x;
         }
         
-        counter++;
-
-        if (counter == 2 || counter == 5 || counter == 10 || counter == 15 || counter == 20 || counter == 25 || counter == 30)
+        // Output every 5 iterations
+        if (rover % 5 == 0)
         {
             for (int u = 0; u < sourceROWS * sourceCOLS; u++) result[u] = sourceImage[u];
             for (int f = 0; f < fileRows; f++)
@@ -245,26 +212,13 @@ int main(int argc, char* argv[])
                     result[contours[f].y * sourceCOLS + (contours[f].x + g)] = BLACK; // Horizontal Line
                 }
             }
-            switch (counter)
-            {
-            case 2:
-                outputImage(result, "hawk_final_2.ppm", sourceCOLS, sourceROWS);
-            case 5:
-                outputImage(result, "hawk_final_5.ppm", sourceCOLS, sourceROWS);
-            case 10:
-                outputImage(result, "hawk_final_10.ppm", sourceCOLS, sourceROWS);
-            case 15:
-                outputImage(result, "hawk_final_15.ppm", sourceCOLS, sourceROWS);
-            case 20:
-                outputImage(result, "hawk_final_20.ppm", sourceCOLS, sourceROWS);
-            case 25:
-                outputImage(result, "hawk_final_25.ppm", sourceCOLS, sourceROWS);
-            case 30:
-                outputImage(result, "hawk_final_30.ppm", sourceCOLS, sourceROWS);
-            }
+
+            memset(resultStr, 0, strlen(resultStr));
+            sprintf(resultStr, "hawk_final_%d.ppm", rover);
+            outputImage(result, resultStr, sourceCOLS, sourceROWS);
         }
 
-    } while (counter < 30);
+    }
 
     FILE *fpt;
     fpt = fopen("coordinates.txt", "w");
