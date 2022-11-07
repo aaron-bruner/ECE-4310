@@ -18,9 +18,13 @@
     * Currently none
 */
 
+#pragma region definitions
+
 //#define DEBUG False
 #define BLACK 0
 #define WHITE 255
+#define ROVERMAX 30  // Number of iterations for our algorithm
+#define FILTERCOLS 7 // This is the 7x7 columns count
 
 #define SQR(x) ((x)*(x))
 
@@ -37,29 +41,31 @@ struct contourPoints {
     int  y; // ROW
 };
 
-void sobel(int* gradientImage, float* gradientImageTwo, unsigned char* sourceImage, int COLS, int ROWS);
-void normalize(unsigned char* normImage, int* srcImage, int max, int min, int COLS, int ROWS);
-float* normalizeBinary(float* energy);
-void MaxMin(int* srcImage, int *max, int *min, int COLS, int ROWS);
-void MaxMinSobel(float* srcImage, float *max, float *min, int COLS, int ROWS);
+void sobel(float* output, unsigned char* input, int COLS, int ROWS);
+void normalize(unsigned char* output, float* input, int max, int min, int COLS, int ROWS);
+void MaxMin(float* srcImage, float *max, float *min, int COLS, int ROWS);
 void outputImage(unsigned char* source, char* fileName, int col, int row);
-unsigned char* readImage(int* ROWS, int* COLS, char* source);
+unsigned char* readImage(int* COLS, int* ROWS, char* source);
 unsigned char* createImage(int size);
-
+float* normalizeBinary(float* energy);
 struct contourPoints* readCSV(char* contourPointsDir, int* fileRows);
 
 char* sourceImageDir = "hawk.ppm";
 char* contoursPointsDir = "hawk_init.txt";
 
+#pragma endregion
+
+
 int main(int argc, char* argv[])
 {
     unsigned char* sourceImage, *sourceWithContours, *normalizedImage, *result;
-    char resultStr[40];
+    char resultStr[17];
     int* gradientImage;
-    struct contourPoints* contours;
-    struct contourPoints* newContours;
+    float* sobelImage;
+    struct contourPoints* contours,* newContours;
 
-    int r, c, x, y, i = 0, j = 0, fileRows = 0, sourceROWS, sourceCOLS, max = 0, min = 0, counter = 0, location, COLS = 7;
+    int r, c, j = 0, fileRows, sourceROWS, sourceCOLS, location;
+    float min, max;
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
     /*                 STEP 1: Read in source image and contour pixels                             */
@@ -68,12 +74,12 @@ int main(int argc, char* argv[])
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
     if (argc == 1) {
-        sourceImage = readImage(&sourceROWS, &sourceCOLS, sourceImageDir);
+        sourceImage = readImage(&sourceCOLS, &sourceROWS, sourceImageDir);
         contours = readCSV(contoursPointsDir, &fileRows);
     }
     else if (argc == 3)
     {
-        sourceImage = readImage(&sourceROWS, &sourceCOLS, argv[1]);
+        sourceImage = readImage(&sourceCOLS, &sourceROWS, argv[1]);
         contours = readCSV(argv[2], &fileRows);
     }
     else
@@ -97,10 +103,11 @@ int main(int argc, char* argv[])
     *  Create a copy of the original image */
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
     sourceWithContours = createImage(sourceCOLS * sourceROWS);
-    for (i = 0; i < sourceROWS * sourceCOLS; i++) sourceWithContours[i] = sourceImage[i];
-    for (i = 0; i < fileRows; i++)
+    // Duplicate the source image and then apply contours as plus signs at x,y locations
+    for (int i = 0; i < sourceROWS * sourceCOLS; i++) sourceWithContours[i] = sourceImage[i];
+    for (int i = 0; i < fileRows; i++)
     {
-        for (j = -3; j < 4; j++)
+        for (j = -3; j <= 3; j++)
         {
             sourceWithContours[(contours[i].y + j) * sourceCOLS + contours[i].x] = BLACK; // Vertical Line
             sourceWithContours[contours[i].y * sourceCOLS + (contours[i].x + j)] = BLACK; // Horizontal Line
@@ -111,18 +118,15 @@ int main(int argc, char* argv[])
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
     /*                 STEP 3: Get the Sobel edge gradient magnitude image                         */
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-    gradientImage = calloc(sourceROWS * sourceCOLS, sizeof(int));
-    float* sobelImage = calloc(sourceROWS * sourceCOLS, sizeof(float));
-    sobel(gradientImage, sobelImage, sourceImage, sourceCOLS, sourceROWS);
+    sobelImage = calloc(sourceROWS * sourceCOLS, sizeof(float));
+    sobel(sobelImage, sourceImage, sourceCOLS, sourceROWS);
 
     // Find maximum and minimum values
-    MaxMin(gradientImage, &max, &min, sourceCOLS, sourceROWS);
-    float maxtwo = 0, mintwo = 0;
-    MaxMinSobel(sobelImage, &maxtwo, &mintwo, sourceCOLS, sourceROWS);
+    MaxMin(sobelImage, &max, &min, sourceCOLS, sourceROWS);
 
     // Normalize the image using min and max values
     normalizedImage = createImage(sourceROWS * sourceCOLS);
-    normalize(normalizedImage, gradientImage, max, min, sourceCOLS, sourceROWS);
+    normalize(normalizedImage, sobelImage, max, min, sourceCOLS, sourceROWS);
     outputImage(normalizedImage, "hawk_normalized.ppm", sourceCOLS, sourceROWS);
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
@@ -134,63 +138,56 @@ int main(int argc, char* argv[])
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
     // Initialize our energy variables
-    float* inEnergyOne = calloc(SQR(COLS), sizeof(float));
-    float* inEnergyTwo = calloc(SQR(COLS), sizeof(float));
-    float* exEnergy    = calloc(SQR(COLS), sizeof(float));
-    float* totalEnergy = calloc(SQR(COLS), sizeof(float));
+    float* inEnergyOne = calloc(SQR(FILTERCOLS), sizeof(float));
+    float* inEnergyTwo = calloc(SQR(FILTERCOLS), sizeof(float));
+    float* exEnergy    = calloc(SQR(FILTERCOLS), sizeof(float));
+    float* totalEnergy = calloc(SQR(FILTERCOLS), sizeof(float));
+
     float avgDist = 0, * normOne, * normTwo, * normEx;
     newContours = calloc(fileRows, sizeof(struct contourPoints));
+    result = createImage(sourceCOLS*sourceROWS);
 
-    float* invertedSobel = (float*)calloc(sourceCOLS * sourceROWS, sizeof(float));
-
-    //INVERT
-    for (int h = 0; h < sourceCOLS * sourceROWS; h++)
-    {
-        invertedSobel[h] = (float)maxtwo - sobelImage[h];
-    }
-
-    for (int rover = 0; rover < roverMAX; rover++, avgDist = 0)
+    for (int rover = 0; rover < ROVERMAX; rover++, avgDist = 0)
     {
         // Calculate the average distance
         for (int a = 0; a < fileRows; a++)
         {
-            newContours[a].x = newContours[a].y = 0;
-
+            a < fileRows - 1 ? newContours[a].x = newContours[a].y = 0 : 0;
+            
             avgDist += sqrt(SQR(contours[a].y - contours[a == (fileRows - 1) ? 0 : (a + 1)].y) + SQR(contours[a].x - contours[a == (fileRows - 1) ? 0 : (a + 1)].x));
             avgDist = (a == (fileRows - 1)) ? avgDist / fileRows : avgDist;
         }
 
         for (int b = 0; b < fileRows; b++)
         {
-            // Calculate the energy
+            // Calculate the energy for each contour point
+            // (y - y+1) * (x - x+1) for every values except the last one. The last value is (y - 0) * (x - 0)
             for (r = -3; r <= 3; r++)
             {
                 for (c = -3; c <= 3; c++)
                 {
                     inEnergyOne[(r + 3) * 7 + (c + 3)] = SQR((contours[b].y + r) - contours[b == (fileRows - 1) ? 0 : (b + 1)].y) + SQR((contours[b].x + c) - contours[b == (fileRows - 1) ? 0 : (b + 1)].x);
                     inEnergyTwo[(r + 3) * 7 + (c + 3)] = SQR(sqrt(inEnergyOne[(r + 3) * 7 + (c + 3)]) - avgDist);
-                       exEnergy[(r + 3) * 7 + (c + 3)] = SQR(invertedSobel[(contours[b].y + r) * sourceCOLS + (contours[b].x + c)]);
+                       exEnergy[(r + 3) * 7 + (c + 3)] = SQR(max - sobelImage[(contours[b].y + r) * sourceCOLS + (contours[b].x + c)]);
                 }
             }
 
-            // Normalize the energy
+            // Normalize the energy to values from 0 to 1
             normOne = normalizeBinary(inEnergyOne);
             normTwo = normalizeBinary(inEnergyTwo);
             normEx  = normalizeBinary(exEnergy);
 
             // Get Total Energy and location
             min = location = 0;
-            for (int d = 0; d < SQR(COLS); d++)
+            for (int d = 0; d < SQR(FILTERCOLS); d++)
             {
-                totalEnergy[d] = 3 * (normOne[d] + normTwo[d]) + (2 * normEx[d]);
+                totalEnergy[d] = 2 * normOne[d] + normTwo[d] + normEx[d];
                 (d == 0) ? min = totalEnergy[d] : (totalEnergy[d] < min ? min = totalEnergy[d], location = d : false);
             }
 
             // Now that we have the total energy and location we can find new contour positions
-            double temp = (double)location / 7;
-            temp > 3 ? newContours[b].x = contours[b].y + abs(temp - 3) : (temp < 3 ? newContours[b].x = contours[b].y - abs(temp - 3) : (newContours[b].x = contours[b].y));
-                  temp = (int)(location % 7);
-            temp > 3 ? newContours[b].y = contours[b].x + abs(temp - 3) : (temp < 3 ? newContours[b].y = contours[b].x - abs(temp - 3) : (newContours[b].y = contours[b].x));
+            location / 7 > 3 ? newContours[b].x = contours[b].y + abs(location / 7 - 3) : (location / 7 < 3 ? newContours[b].x = contours[b].y - abs(location / 7 - 3) : (newContours[b].x = contours[b].y));
+            location % 7 > 3 ? newContours[b].y = contours[b].x + abs(location % 7 - 3) : (location % 7 < 3 ? newContours[b].y = contours[b].x - abs(location % 7 - 3) : (newContours[b].y = contours[b].x));
         }
 
         // Update the location of the contours
@@ -200,16 +197,17 @@ int main(int argc, char* argv[])
             contours[e].y = newContours[e].x;
         }
         
+
         // Output every 5 iterations
-        if (rover % 5 == 0)
+        if (rover % 5 == 0 || rover == 29)
         {
-            for (int u = 0; u < sourceROWS * sourceCOLS; u++) result[u] = sourceImage[u];
-            for (int f = 0; f < fileRows; f++)
+            for (int f = 0; f < sourceROWS * sourceCOLS; f++) result[f] = sourceImage[f];
+            for (int g = 0; g < fileRows; g++)
             {
-                for (int g = -3; g <= 3; g++)
+                for (int h = -3; h <= 3; h++)
                 {
-                    result[(contours[f].y + g) * sourceCOLS + contours[f].x] = BLACK; // Vertical Line
-                    result[contours[f].y * sourceCOLS + (contours[f].x + g)] = BLACK; // Horizontal Line
+                    result[(contours[g].y + h) * sourceCOLS + contours[g].x] = BLACK; // Vertical Line
+                    result[contours[g].y * sourceCOLS + (contours[g].x + h)] = BLACK; // Horizontal Line
                 }
             }
 
@@ -223,59 +221,58 @@ int main(int argc, char* argv[])
     FILE *fpt;
     fpt = fopen("coordinates.txt", "w");
     // Output final coordinates
-    for (int p = 0; p < fileRows; p++)
+    for (int j = 0; j < fileRows; j++)
     {
-        if (p == 0) fprintf(fpt, "Columns Rows\n");
-        fprintf(fpt, "%d %d\n", contours[p].x, contours[p].y);
+        if (j == 0) fprintf(fpt, "Columns Rows\n");
+        fprintf(fpt, "%d %d\n", contours[j].x, contours[j].y);
     }
     fclose(fpt);
 
     return 0;
 }
 
+/// <summary>
+/// Normalize the source image to 255 using the maximum and minimum pixel values provided
+/// </summary>
+/// <param name="output"></param>
+/// <param name="input"></param>
+/// <param name="max"></param>
+/// <param name="min"></param>
+/// <param name="COLS"></param>
+/// <param name="ROWS"></param>
+void normalize(unsigned char* output, float* input, int max, int min, int COLS, int ROWS)
+{
+    // https://en.wikipedia.org/wiki/Normalization_(image_processing)
+    for (int i = 0; i < COLS * ROWS; i++)
+    {
+        output[i] = (input[i] - min) * 255 / (max - min);
+    }
+
+    return;
+}
+
+/// <summary>
+/// Normalize the image to values from 0 to 1
+/// </summary>
+/// <param name="energy">Input image to be normalized</param>
+/// <returns>Normalized image</returns>
 float* normalizeBinary(float * energy)
 {
-    int i = 0, r = 0, c = 0, cols = 7;
-    float* result = calloc(SQR(cols), sizeof(float));
+    float* result = calloc(SQR(FILTERCOLS), sizeof(float));
     float min = energy[0], max = energy[0];
 
-    for (i = 1; i < SQR(cols); i++)
+    for (int i = 0; i < SQR(FILTERCOLS); i++)
     {
         max < energy[i] ? max = energy[i] : max;
         min > energy[i] ? min = energy[i] : min;
     }
 
-    for (r = 0; r < cols; r++)
+    for (int i = 0; i < SQR(FILTERCOLS); i++)
     {
-        for (c = 0; c < cols; c++)
-        {
-            result[r * cols + c] = (energy[r * cols + c] - min) * 255 / (max - min);
-        }
+        result[i] = (energy[i] - min) * 1 / (max - min);
     }
 
     return result;
-}
-
-/// <summary>
-/// Normalize the source image using the maximum and minimum pixel values provided
-/// </summary>
-/// <param name="normImage"></param>
-/// <param name="srcImage"></param>
-/// <param name="max"></param>
-/// <param name="min"></param>
-/// <param name="COLS"></param>
-/// <param name="ROWS"></param>
-void normalize(unsigned char* normImage, int* srcImage, int max, int min, int COLS, int ROWS)
-{
-    for (int r = 0; r < ROWS; r++)
-    {
-        for (int c = 0; c < COLS; c++)
-        {
-            normImage[r * COLS + c] = (srcImage[r * COLS + c] - min) * 255 / (max - min);
-        }
-    }
-
-    return;
 }
 
 /// <summary>
@@ -284,69 +281,56 @@ void normalize(unsigned char* normImage, int* srcImage, int max, int min, int CO
 /// <param name="srcImage"></param>
 /// <param name="max"></param>
 /// <param name="min"></param>
-void MaxMin(int* srcImage, int *max, int *min, int COLS, int ROWS)
+void MaxMin(float* input, float *max, float *min, int COLS, int ROWS)
 {
-    int i = 0;
+    (*min) = (*max) = input[0];
 
-    (*min) = (*max) = srcImage[0];
-
-    for (i = 0; i < COLS * ROWS; i++)
+    for (int i = 0; i < COLS * ROWS; i++)
     {
-        (*max) < srcImage[i] ? (*max) = srcImage[i] : (*max);
-        (*min) > srcImage[i] ? (*min) = srcImage[i] : (*min);
+        (*max) < input[i] ? (*max) = input[i] : (*max);
+        (*min) > input[i] ? (*min) = input[i] : (*min);
     }
-    return;
-}
 
-void MaxMinSobel(float* srcImage, float* max, float* min, int COLS, int ROWS)
-{
-    int i = 0;
-
-    (*min) = (*max) = srcImage[0];
-
-    for (i = 0; i < COLS * ROWS; i++)
-    {
-        (*max) < srcImage[i] ? (*max) = srcImage[i] : (*max);
-        (*min) > srcImage[i] ? (*min) = srcImage[i] : (*min);
-    }
     return;
 }
 
 /// <summary>
-/// 
-/// Level Edge | Vertical Edge | Sobel Template |
-/// -1  -2  -1 | -1   0   1    |  w1   w2   w3  |
-///  0   0   0 | -2   0   2    |  w4   w5   w6  |
-///  1   2   1 | -1   0   1    |  w7   w8   w9  |
+/// Sobel Edge Detection algorithm
+/// https://en.wikipedia.org/wiki/Sobel_operator
+/// __________________________________________________
+/// Horizontal Edge | Vertical Edge | Sobel Template |
+///   -1   -2   -1  | -1   0   1    |  w1   w2   w3  |
+///    0    0    0  | -2   0   2    |  w4   w5   w6  |
+///    1    2    1  | -1   0   1    |  w7   w8   w9  |
+/// --------------------------------------------------
 /// </summary>
-/// <param name="gradientImage"></param>
-/// <param name="sourceImage"></param>
-/// <param name="sourceROWS"></param>
-/// <param name="sourceCOLS"></param>
-void sobel(int* gradientImage, float* gradientImageTwo, unsigned char* sourceImage, int COLS, int ROWS)
+/// <param name="output"></param>
+/// <param name="input"></param>
+/// <param name="COLS"></param>
+/// <param name="ROWS"></param>
+void sobel(float* output, unsigned char* input, int COLS, int ROWS)
 {
-    int levelEdge[9]    = { -1, -2, -1,  0, 0, 0,  1, 2, 1 };
-    int verticalEdge[9] = { -1,  0,  1, -2, 0, 2, -1, 0, 1 };
-    int x, y, r, c, i, j;
+    int horizontalEdge[9] = { -1, -2, -1,  0, 0, 0,  1, 2, 1 };
+    int verticalEdge[9]   = { -1,  0,  1, -2, 0, 2, -1, 0, 1 };
+    float x = 0, y = 0;
 
-    // Copy source image into convolution image
-    for (i = 0; i < COLS * ROWS; i++) gradientImage[i] = sourceImage[i];
+    // Duplicate the input image into the output
+    for (int i = 0; i < COLS * ROWS; i++) output[i] = input[i];
 
     // Apply Sobel Filter
-    for (r = 1; r < ROWS - 1; r++)
+    for (int r = 1; r < ROWS - 1; r++)
     {
-        for (c = 1; c < COLS - 1; c++, x = 0, y = 0)
+        for (int c = 1; c < COLS - 1; c++, x = 0, y = 0)
         {
-            for (i = -1; i <= 1; i++)
+            for (int a = -1; a <= 1; a++)
             {
-                for (j = -1; j <= 1; j++)
+                for (int b = -1; b <= 1; b++)
                 {
-                    y +=    levelEdge[(i + 1) * 3 + (j + 1)] * sourceImage[(r + i) * COLS + (c + j)];
-                    x += verticalEdge[(i + 1) * 3 + (j + 1)] * sourceImage[(r + i) * COLS + (c + j)];
+                    x += horizontalEdge[(a + 1) * 3 + (b + 1)] * input[(a + r) * COLS + (b + c)];
+                    y +=   verticalEdge[(a + 1) * 3 + (b + 1)] * input[(a + r) * COLS + (b + c)];
                 }
             }
-               gradientImage[r * COLS + c] = sqrt(SQR(x) + SQR(y));
-            gradientImageTwo[r * COLS + c] = sqrt(SQR(x) + SQR(y));
+            output[r * COLS + c] = sqrt(SQR(x) + SQR(y));
         }
     }
 
@@ -361,6 +345,7 @@ void sobel(int* gradientImage, float* gradientImageTwo, unsigned char* sourceIma
 struct contourPoints* readCSV(char* contourPointsDir, int *fileRows)
 {
     int i = 0, r = 0, c = 0;
+    (*fileRows) = 0;
     struct contourPoints* contours;
     FILE* FPT;
 
@@ -395,7 +380,7 @@ struct contourPoints* readCSV(char* contourPointsDir, int *fileRows)
 /// <param name="COLS"> Number of columns in the source image </param>
 /// <param name="source"> File name that we're needing to open and read data from </param>
 /// <returns> The function returns an array of values which makes up our image </returns>
-unsigned char* readImage(int* ROWS, int* COLS, char* source)
+unsigned char* readImage(int* COLS, int* ROWS, char* source)
 {
     int BYTES, readHeaderReturn;
     static char header[80];
