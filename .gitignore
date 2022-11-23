@@ -455,3 +455,5 @@ FodyWeavers.xsd
 *.db-shm
 *.db-wal
 *.sqlite
+Lab 5/.vs/ProjectSettings.json
+Lab 5/.vs/VSWorkspaceState.json
