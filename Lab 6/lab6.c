@@ -14,23 +14,29 @@
 
 #pragma region definitions
 
-#define secPerRow 0.05
-#define sampleRate 20 // Hz
-#define gravity 9.81  // m/s^2
+#define TRUE 1
+#define FALSE 0
+#define START 0
+#define END 1
+#define CONST_SEC_PER_ROW 0.05
+#define CONST_SAMPLE_RATE 20 // Hz
+#define CONST_GRAVITY 9.81  // m/s^2
+#define WINDOW_SIZE 12
 #define MIN_WINDOW 1
 #define MAX_WINDOW 6
-#define ACCELEROMETERS_THRESHOLD 0.01
-#define GYROSCOPE_ROLL_THRESHOLD 0.05
-#define GYROSCOPE_PITCH_AND_YAW_THRESHOLD 0.005
+// Values lower than 0 means less detection
+#define ACCELEROMETERS_ACCX_THRESHOLD 0.008
+#define ACCELEROMETERS_ACCY_THRESHOLD 0.02
+#define ACCELEROMETERS_ACCZ_THRESHOLD 0.008
+#define GYROSCOPE_ROLL_THRESHOLD 0.003
+#define GYROSCOPE_PITCH_THRESHOLD 0.04
+#define GYROSCOPE_YAW_THRESHOLD 0.003
 
 #define SQR(x) ((x)*(x))
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include <limits.h>
-#include <math.h>
 
 struct motionData {
     double time;
@@ -43,81 +49,55 @@ struct motionData {
 };
 
 struct motionData* readCSV(char* motionDataDir, int* fileRows);
-double calcVariance(struct motionData *data, int index, int rows, int selection);
-void integrate(struct motionData* data, int start, int end, double* outputArr);
-void PrintData(FILE* fp, double distance[6], double start_time, double end_time, int start_index, int end_index);
+void integrate(struct motionData* data, int* index, double* outputArr);
+void segmentData(int* isMoving, struct motionData* data, int index, int rows);
 
 char* defaultMotionDataDir = "acc_gyro.txt";
-bool isMoving = false;
+char* resultDir = "movements.txt";
+int isMoving = FALSE;
 
 #pragma endregion
 
 
 int main(int argc, char* argv[])
 {
-    struct motionData* motionData, *rover;
     FILE* resultFPT;
-    bool isMoving = false;
-    int fileRows, startIndex = 0, endIndex = 0;
-    double start_time = 0.0, end_time = 0.0;
-
-    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-    /*                              STEP 1: Read in source data                                    */
-    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    struct motionData* motionData, *rover;
+    int fileRows, isMoving = FALSE, movementCounter = 0, index[2];
+    double distance[MAX_WINDOW], time[2];
+    time[START] = time[END] = index[START] = index[END] = 0.0;
 
     // Input is only ./lab6
-    if (argc == 1) {
-        motionData = readCSV(defaultMotionDataDir, &fileRows);
-    }
-    // Input is anything else
-    else
-    {
-        printf("Incorrect number of arguments...\nUsage: ./lab6\n");
-        exit(0);
-    }
+    argc == 1 ? (motionData = readCSV(defaultMotionDataDir, &fileRows)) : (fprintf(stdout, "Incorrect number of arguments...\nUsage: ./lab6\n"), exit(0));
 
-    resultFPT = fopen("result.txt", "w");
+    // Clear results file
+    resultFPT = fopen(resultDir, "w"); resultFPT == NULL ? fprintf(stdout, "Failed to open %s...\n", resultDir), exit(0) : fclose(resultFPT);
+    rover = motionData; // Point the rover at first element of motion data
 
-    double varianceData[MAX_WINDOW];
-    double dist_arr[6] = { 0,0,0,0,0,0 };
-    rover = motionData;
-
+    // For each data point
     for (int a = 0; a < fileRows; a++, rover++)
     {
-        for (int b = MIN_WINDOW; b < MAX_WINDOW; b++)
+        segmentData(&isMoving, motionData, a, fileRows);
+
+        isMoving ? (time[START] == 0.0 ? time[START] = rover->time, index[START] = a : 0.0) : ((time[START] != 0.0 && time[END] == 0.0) ? time[END] = rover->time, index[END] = a : 0.0);
+
+        // If we've detected a start movement AND end movement then output
+        if (time[START] != 0.0 && time[END] != 0.0)
         {
-            varianceData[b] = calcVariance(motionData, a, fileRows, b);
+            movementCounter += 1;
+            integrate(motionData, index, distance);
+
+            resultFPT = fopen(resultDir, "a");
+            fprintf(resultFPT, "*----= Movement # [ %2d ] =---------= Total Linear Distance =-------[ %0.2f - %0.2f ]------*\n", movementCounter, time[START], time[END]);
+            fprintf(resultFPT, "|     X     = % 01.5f (m)       Y    = % 01.5f (m)      Z    = % 01.5f (m)             |\n", distance[0], distance[1], distance[2]);
+            fprintf(resultFPT, "|     Pitch = % 01.5f (rad)     Roll = % 01.5f (rad)    Yaw  = % 01.5f (rad)           |\n", distance[3], distance[4], distance[5]);
+            fprintf(resultFPT, "*-Legend: XYZ are measured in meters (m) and Pitch,Yaw,Roll are measured in radians (rad)-*\n\n");
+            fclose(resultFPT);
+
+            // Reset time variables after exporting a detected iPhone movement
+            time[START] = time[END] = 0.0;
         }
-
-        isMoving = (calcVariance(motionData, a, fileRows, 1) > ACCELEROMETERS_THRESHOLD || calcVariance(motionData, a, fileRows, 2) > ACCELEROMETERS_THRESHOLD || calcVariance(motionData, a, fileRows, 3) > ACCELEROMETERS_THRESHOLD ||
-            calcVariance(motionData, a, fileRows, 4) > GYROSCOPE_PITCH_AND_YAW_THRESHOLD || calcVariance(motionData, a, fileRows, 5) > GYROSCOPE_ROLL_THRESHOLD || calcVariance(motionData, a, fileRows, 6) > GYROSCOPE_PITCH_AND_YAW_THRESHOLD) ? true : false;
-        //isMoving = (varianceData[1] > ACCELEROMETERS_THRESHOLD || varianceData[2] > ACCELEROMETERS_THRESHOLD || varianceData[3] > ACCELEROMETERS_THRESHOLD ||
-        //    varianceData[4] > GYROSCOPE_THRESHOLD || varianceData[5] > GYROSCOPE_THRESHOLD || varianceData[6] > GYROSCOPE_THRESHOLD) ? true : false;
-
-        if (isMoving && start_time == 0.0)
-        {
-            start_time = rover->time;
-            startIndex = a;
-        }
-        else if (!isMoving && start_time != 0.0 && end_time == 0.0)
-        {
-            isMoving = false;
-            end_time = rover->time;
-            endIndex = a;
-        }
-
-        if (start_time != 0.0 && end_time != 0.0)
-        {
-            integrate(motionData, startIndex, endIndex, dist_arr);
-
-            PrintData(resultFPT, dist_arr, start_time, end_time, startIndex, endIndex);
-            start_time = 0.0;
-            end_time = 0.0;
-        }
-
     }
-
-    fclose(resultFPT);
 
     return 0;
 }
@@ -131,8 +111,8 @@ int main(int argc, char* argv[])
 /// <returns>An array of structures which contain the time, accX, accY, accZ, pitch, roll and yaw.</returns>
 struct motionData* readCSV(char* motionDataDir, int *fileRows)
 {
-    char header[UCHAR_MAX];
-    size_t headerSize = UCHAR_MAX;
+    char header[0xff];
+    size_t headerSize = 0xff;
     double time, accX, accY, accZ, pitch, roll, yaw;
     int i = 0;
     (*fileRows) = 0;
@@ -141,7 +121,7 @@ struct motionData* readCSV(char* motionDataDir, int *fileRows)
 
     // Open the file for reading
     FPT = fopen(motionDataDir, "r");
-    FPT == NULL ? printf("Failed to open %s.\n", motionDataDir), exit(0) : false;
+    FPT == NULL ? printf("Failed to open %s.\n", motionDataDir), exit(0) : FALSE;
 
     // Read in header data before reading rows
     fgets(header, headerSize, FPT);
@@ -169,141 +149,101 @@ struct motionData* readCSV(char* motionDataDir, int *fileRows)
     return data;
 }
 
-double calcVariance(struct motionData *data, int index, int rows, int selection)
-{
-    int   i;
-    int   local_var_window;
-    double mean = 0;
-    double var;
-
-    if (index + 10 <= rows)
-    {
-        local_var_window = index + 10;
-    }
-    else
-    {
-        local_var_window = rows;
-    }
-    for (i = index; i < local_var_window; i++)
-    {
-        switch (selection)
-        {
-        case 1:
-            mean += data[i].accX;
-            break;
-        case 2:
-            mean += data[i].accY;
-            break;
-        case 3:
-            mean += data[i].accZ;
-            break;
-        case 4:
-            mean += data[i].pitch;
-            break;
-        case 5:
-            mean += data[i].yaw;
-            break;
-        case 6:
-            mean += data[i].roll;
-            break;
-        }
-    }
-    mean = mean / (10 + 1);
-
-    for (i = index; i < local_var_window; i++)
-    {
-        switch (selection)
-        {
-        case 1:
-            var += SQR(data[i].accX - mean);
-            break;
-        case 2:
-            var += SQR(data[i].accY - mean);
-            break;
-        case 3:
-            var += SQR(data[i].accZ - mean);
-            break;
-        case 4:
-            var += SQR(data[i].pitch - mean);
-            break;
-        case 5:
-            var += SQR(data[i].yaw - mean);
-            break;
-        case 6:
-            var += SQR(data[i].roll - mean);
-            break;
-        }
-    }
-    var = var / (10 + 1);
-
-    return var;
-}
-
-void PrintData(FILE* fp, double distance[6], double start_time, double end_time, int start_index, int end_index)
-{
-    fprintf(fp, "########################################################\n");
-    fprintf(fp, "X Movement: %f [m]\nY Movement: %f [m]\nZ Movement: %f [m]\n", distance[0], distance[1], distance[2]);
-    fprintf(fp, "Pitch Movement: %f [rad]\nRoll Movement: %f [rad]\nYaw Movement: %f [rad]\n", distance[3], distance[4], distance[5]);
-    fprintf(fp, "Start Time: %0.2f\t\tEnd Time: %0.2f\n", start_time, end_time);
-    fprintf(fp, "Start Index: %d\t\tEnd Index: %d\n", start_index, end_index);
-    fprintf(fp, "\n\n");
-
-    return;
-}
-
-void integrate(struct motionData *data, int start, int end, double *outputArr)
+/// <summary>
+/// To segment the data, you should use a window and calculate the variance of the data
+/// along all 6 axes. When those variances are all less than some threshold, the iPhone is at
+/// rest, and when any of the 6 variances is greater than the threshold, the iPhone is in
+/// motion.
+/// 
+/// https://www.geeksforgeeks.org/program-for-variance-and-standard-deviation-of-an-array/
+/// </summary>
+/// <param name="isMoving">Boolean value to determine if the iPhone is moving</param>
+/// <param name="data">Data of iPhone moving</param>
+/// <param name="index">Index value we're currently at in main process</param>
+/// <param name="rows">Number of rows in data array</param>
+void segmentData(int *isMoving, struct motionData* data, int index, int rows)
 {
     int i;
-    double prev_velocity = 0.0;
-    double velocity = 0.0;
-    double distance = 0.0;
-    double result = 0.0;
+    double meanx, meany, meanz, meanP, meanY, meanR;
+    double varx, vary, varz, varP, varY, varR;
+    meanx = meany = meanz = meanP = meanY = meanR = 0.0;
+    varx = 0, vary = 0, varz = 0, varP = 0, varY = 0, varR = 0;
 
-    for (int a = 1; a < 7; a++)
+    // Calculate mean values
+    int limit = index + WINDOW_SIZE > rows ? rows : index + WINDOW_SIZE;
+    for (i = index; i < limit; i++)
     {
-        if (a < 4)
-        {
-            prev_velocity = velocity = distance =0;
-            for (i = start; i <= end; i++)
-            {
-                prev_velocity = velocity;
-                switch (a)
-                {
-                case 1:
-                    velocity += data[i].accX * gravity * secPerRow;
-                    break;
-                case 2:
-                    velocity += data[i].accY * gravity * secPerRow;
-                    break;
-                case 3:
-                    velocity += data[i].accZ * gravity * secPerRow;
-                    break;
-                }
-                distance += ((velocity + prev_velocity) / 2) * secPerRow;
-            }
-            outputArr[a-1] = distance;
-        }
-        else
-        {
-            result = 0;
-            for (i = start; i <= end; i++)
-            {
-                switch (a)
-                {
-                case 4:
-                    result += data[i].pitch * secPerRow;
-                    break;
-                case 5:
-                    result += data[i].yaw * secPerRow;
-                    break;
-                case 6:
-                    result += data[i].roll * secPerRow;
-                    break;
-                }
-            }
-            outputArr[a-1] = result;
-        }
+        meanx += data[i].accX;
+        meany += data[i].accY;
+        meanz += data[i].accZ;
+        meanP += data[i].pitch;
+        meanY += data[i].yaw;
+        meanR += data[i].roll;
     }
+    meanx /= (WINDOW_SIZE + 1);
+    meany /= (WINDOW_SIZE + 1);
+    meanz /= (WINDOW_SIZE + 1);
+    meanP /= (WINDOW_SIZE + 1);
+    meanY /= (WINDOW_SIZE + 1);
+    meanR /= (WINDOW_SIZE + 1);
+    // Calculate the variance using mean values
+    for (i = index; i < limit; i++)
+    {
+        varx += SQR(data[i].accX - meanx);
+        vary += SQR(data[i].accY - meany);
+        varz += SQR(data[i].accZ - meanz);
+        varP += SQR(data[i].pitch - meanP);
+        varR += SQR(data[i].yaw - meanY);
+        varY += SQR(data[i].roll - meanR);
+    }
+    varx /= (WINDOW_SIZE + 1);
+    vary /= (WINDOW_SIZE + 1);
+    varz /= (WINDOW_SIZE + 1);
+    varP /= (WINDOW_SIZE + 1);
+    varR /= (WINDOW_SIZE + 1);
+    varY /= (WINDOW_SIZE + 1);
 
-    return;
+    // Check thresholds to determine if moving
+    *(isMoving) = (varx > ACCELEROMETERS_ACCX_THRESHOLD ||
+                   vary > ACCELEROMETERS_ACCY_THRESHOLD ||
+                   varz > ACCELEROMETERS_ACCZ_THRESHOLD ||
+                   varP > GYROSCOPE_PITCH_THRESHOLD     ||
+                   varR > GYROSCOPE_ROLL_THRESHOLD      ||
+                   varY > GYROSCOPE_YAW_THRESHOLD)         ? TRUE : FALSE;
+}
+
+/// <summary>
+/// To calculate the motion, the data must be integrated (gyroscopes) or double integrated
+/// (accelerometers).For the gyroscopes, this can be accomplished by multiplying the data
+/// by the time between samples.For the accelerometers, you must calculate three values :
+/// the velocity at the end of a sampling period, the average velocity during the sampling
+/// period, and then the distance traveled during the sampling period.Assume the initial
+/// velocity is zero.The velocity at the time of a data sample is equal to the velocity at the
+/// time of the previous sample plus the acceleration reading multiplied by the time between
+/// samples.This assumes constant acceleration, which is okay because the sampling
+/// interval is small.The average velocity during the sampling period is the average of the
+/// initial and final velocities.The distance traveled during the sampling period is the
+/// average velocity multiplied by the time between samples.
+/// </summary>
+/// <param name="data">Data of iPhone moving</param>
+/// <param name="index">Index value we're currently at in main process</param>
+/// <param name="outputArr"></param>
+void integrate(struct motionData *data, int *index, double *outputArr)
+{
+    double velo = 0.0, prevVelo = 0.0;
+
+    // 0, 1 and 2 are single integrations for gyroscopes
+    for (int i = index[START]; i <= index[END]; i++, prevVelo = velo)
+    {
+        outputArr[0] += (((data[i].accX * CONST_GRAVITY * CONST_SEC_PER_ROW) + prevVelo) / 2) * CONST_SEC_PER_ROW;
+        outputArr[1] += (((data[i].accY * CONST_GRAVITY * CONST_SEC_PER_ROW) + prevVelo) / 2) * CONST_SEC_PER_ROW;
+        outputArr[2] += (((data[i].accZ * CONST_GRAVITY * CONST_SEC_PER_ROW) + prevVelo) / 2) * CONST_SEC_PER_ROW;
+    }
+    // 3, 4 and 5 are double integrals for accelerometers
+    for (int i = index[START]; i <= index[END]; i++)
+    {
+        outputArr[3] += data[i].pitch * CONST_SEC_PER_ROW;
+        outputArr[4] += data[i].yaw   * CONST_SEC_PER_ROW;
+        outputArr[5] += data[i].roll  * CONST_SEC_PER_ROW;
+    }
 }
