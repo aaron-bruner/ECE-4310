@@ -1,3 +1,22 @@
+/* File  : lab8.c
+   Author: Aaron Bruner
+   Class : ECE - 4310 : Introduction to Computer Vision
+   Term  : Fall 2022
+
+   Description: In this project each student must segment a range image based upon surface normals. 
+				A range image of a chair is given at the course website (note that the reflectance image 
+				is only for visualization and will not be used for the lab; make sure you work with 
+				the range image). Some C-code is also provided to convert the pixels into 3D coordinates. 
+				The segmentation process will use the image grid for grouping pixels, but will use the 
+				3D coordinates for calculating surface normals for region predicates.
+
+   Required Files:
+	* chair-range.ppm
+
+   Bugs:
+	* Currently none
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +29,7 @@
 #define false 0
 #define ROWS	128
 #define COLS	128
+#define CrossProductDistance 3
 #define RangeImageSourceDir "chair-range.ppm"
 #define SQR(x) ((x)*(x))
 
@@ -22,25 +42,42 @@
 void outputImage(unsigned char* source, char* fileName, int col, int row);
 unsigned char* readImage(int* cols, int* rows, char* source);
 unsigned char* createImage(int size);
+void RegionGrow(unsigned char* image,	/* image data */
+	unsigned char* labels,	/* segmentation labels */
+	int rows, int cols,	/* size of image */
+	int r, int c,		/* pixel to paint from */
+	int paint_over_label,	/* image label to paint over */
+	int new_label,		/* image label for painting */
+	int* indices,		/* output:  indices of pixels painted */
+	int* count,		/* output:  count of pixels painted */
+	double C[3][ROWS * COLS]);
 
 void main(int argc, char* argv[])
 {
-	int	r, c, row, col, index = 0, distance;
+	int	r, c, row, col, index = 0;
 	double cp[7];
 	double	x0, y0, z0, x1, y1, z1, x2, y2, z2;
 	double	ax, ay, az, bx, by, bz, cx, cy, cz;
 	double xangle, yangle, dist;
 	double ScanDirectionFlag, SlantCorrection;
-	unsigned char *RangeImage/*[128 * 128]*/, *thresholdImage;
+	unsigned char* RangeImage/*[128 * 128]*/, * thresholdImage, * Outfile;
 	double P[3][128 * 128];
 	double C[3][128 * 128];
 	int ImageTypeFlag;
-	char Filename[160], Outfile[160];
+	char Filename[160]/*, Outfile[160]*/, RGB[3];
 	int* indices, i, j, seed;
 	int RegionSize, /** RegionPixels,*/ TotalRegions;
 	double avg, var;
 	FILE* fpt;
 
+	if (argc != 2)
+	{
+		fprintf(stdout, "Usage: ./lab8 chair-range.ppm\n");
+		exit(0);
+	}
+
+	/*----------------------------------------------------------------------------------------*/
+	//									odetics-to-coords.c
 	RangeImage = readImage(&c, &r, RangeImageSourceDir);
 	ScanDirectionFlag = 1; // The slant type can be assumed to be scan direction downward
 
@@ -84,41 +121,34 @@ void main(int argc, char* argv[])
 			}
 		}
 	}
-
 	/*----------------------------------------------------------------------------------------*/
 	// The image should first be masked by thresholding at a distance that removes the
-	// background and leaves only the floor and the chair.Specify the threshold chosen in your
-	// report.
-	thresholdImage = createImage(ROWS*COLS);
-	for (index = 0; index < ROWS*COLS; index++) thresholdImage[index] = RangeImage[index];
-	for (index = 0; index < ROWS*COLS; index++) thresholdImage[index] = thresholdImage[index] > 128 ? 0 : 255;
+	// background and leaves only the floor and the chair.
+	//									lab2.c
+	thresholdImage = createImage(ROWS * COLS);
+	for (index = 0; index < ROWS * COLS; index++) thresholdImage[index] = RangeImage[index] > 130 ? 255 : RangeImage[index];
 	outputImage(thresholdImage, "output-threshold.ppm", COLS, ROWS);
 	/*----------------------------------------------------------------------------------------*/
-
-	/*----------------------------------------------------------------------------------------*/
-	// Surface normals should be calculated using the cross product method as discussed in
-	// class
-	distance = 4;
-	for (row = 0; row < ROWS - distance; row++)
+	// Surface normals should be calculated using the cross product method as discussed in class
+	//								cross-product.c
+	for (row = 0; row < ROWS - CrossProductDistance; row++)
 	{
-		for (col = 0; col < COLS - distance; col++)
+		for (col = 0; col < COLS - CrossProductDistance; col++)
 		{
 			//Create a and b vector for cross product
-			ax = P[x][row * COLS + (col + distance)] - P[0][row * COLS + col];
-			ay = P[y][row * COLS + (col + distance)] - P[1][row * COLS + col];
-			az = P[z][row * COLS + (col + distance)] - P[2][row * COLS + col];
+			ax = P[x][row * COLS + (col + CrossProductDistance)] - P[0][row * COLS + col];
+			ay = P[y][row * COLS + (col + CrossProductDistance)] - P[1][row * COLS + col];
+			az = P[z][row * COLS + (col + CrossProductDistance)] - P[2][row * COLS + col];
 
-			bx = P[x][(row + distance) * COLS + col] - P[0][row * COLS + col];
-			by = P[y][(row + distance) * COLS + col] - P[1][row * COLS + col];
-			bz = P[z][(row + distance) * COLS + col] - P[2][row * COLS + col];
+			bx = P[x][(row + CrossProductDistance) * COLS + col] - P[0][row * COLS + col];
+			by = P[y][(row + CrossProductDistance) * COLS + col] - P[1][row * COLS + col];
+			bz = P[z][(row + CrossProductDistance) * COLS + col] - P[2][row * COLS + col];
 
 			C[x][row * COLS + col] = ay * bz - az * by;
 			C[y][row * COLS + col] = az * bx - ax * bz;
 			C[z][row * COLS + col] = ax * by - ay * bx;
 		}
 	}
-	/*----------------------------------------------------------------------------------------*/
-
 	/*----------------------------------------------------------------------------------------*/
 	//Region growing should be used to segment regions, using the queue - based C code
 	//previously provided.The region predicate should be that a pixel can join the region if its
@@ -132,48 +162,61 @@ void main(int argc, char* argv[])
 	//unlabeled(and not masked out in the first step) of still - unlabeled region.If any pixel
 	//within the 5x5 window is masked out or already labeled in a region, then the pixel cannot
 	//seed a new region.Region growing ends when there are no more possible seed pixels.
+	//									region-grow.c
+	indices = (int*)calloc(ROWS * COLS, sizeof(int));
+	Outfile = createImage(ROWS * COLS);
+	TotalRegions = 0;
+
 	for (i = 2; i < ROWS - 2; i++)
 	{
-		for (j = 2; j < COLS - 2; j++, seed = false)
+		for (j = 2; j < COLS - 2; j++)
 		{
+			seed = true;
 			for (row = -2; row <= 2; row++)
 			{
 				for (col = -2; col <= 2; col++)
 				{
 					if ((thresholdImage[(i + row) * COLS + (j + col)] == 255) || Outfile[(i + row) * COLS + (j + col)] != 0)
 					{
-						seed = true;
+						seed = false;
 					}
 				}
 			}
-			if (!seed)
+			if (seed)
 			{
-				TotalRegions += 30;
+				TotalRegions++;
 				RegionGrow(RangeImage, Outfile, ROWS, COLS, i, j, 0, TotalRegions, indices, &RegionSize, C);
 				if (RegionSize < 100)
-				{
+				{	/* erase region (relabel pixels back to 0) */
 					for (int k = 0; k < RegionSize; k++)
 					{
 						Outfile[indices[k]] = 0;
 					}
-					TotalRegions -= 30;
+					TotalRegions--;
 				}
 				else
 				{
-					printf("Region Number: %d \t Number of Pixels: %d\n", (TotalRegions / 30) - 1, RegionSize);
+					printf("Region Number: %d \t Number of Pixels: %d\n", TotalRegions, RegionSize);
 				}
 			}
-
 		}
 	}
 	/*----------------------------------------------------------------------------------------*/
-
-	//sprintf(Outfile, "%s.coords", Filename);
-	//fpt = fopen(Outfile, "w");
-	//fwrite(P[0], 8, 128 * 128, fpt);
-	//fwrite(P[1], 8, 128 * 128, fpt);
-	//fwrite(P[2], 8, 128 * 128, fpt);
-	//fclose(fpt);
+	// Export Color Version
+	fpt = fopen("output_color.ppm", "wb");
+	fprintf(fpt, "P6 %d %d 255\n", COLS, ROWS);
+	for (r = 0; r < ROWS; r++)
+	{
+		for (c = 0; c < COLS; c++)
+		{
+			RGB[0] = (Outfile[r * COLS + c] * 75) % 256;
+			RGB[1] = (Outfile[r * COLS + c] * 50) % 256;
+			RGB[2] = (Outfile[r * COLS + c] * 25) % 256;
+			fwrite(RGB, sizeof(unsigned char), (int)sizeof(RGB), fpt);
+		}
+	}
+	fclose(fpt);
+	/*----------------------------------------------------------------------------------------*/
 }
 
 /// <summary>
@@ -263,17 +306,18 @@ void RegionGrow(unsigned char* image,	/* image data */
 	int new_label,		/* image label for painting */
 	int* indices,		/* output:  indices of pixels painted */
 	int* count,		/* output:  count of pixels painted */
-	double** C)
+	double C[3][ROWS * COLS])
 {
 	int	r2, c2;
-	int	queue[MAX_QUEUE] = 0, qh, qt;
-	int	average[3], total[3];	/* average and total intensity in growing region */
+	int	queue[MAX_QUEUE], qh, qt;
+	double	average[3], total[3];	/* average and total intensity in growing region */
+	double dotProduct = 0.0, dist1 = 0.0, dist2 = 0.0, angle = 0.0;
 
 	*count = 0;
 	if (labels[r * cols + c] != paint_over_label)
 		return;
 	labels[r * cols + c] = new_label;
-	
+
 	// Need to have an average and total for X, Y and Z
 	//average = total = (int)image[r * cols + c];
 	average[x] = total[x] = (int)C[x][r * cols + c];
@@ -293,26 +337,25 @@ void RegionGrow(unsigned char* image,	/* image data */
 			{
 				if (r2 == 0 && c2 == 0)
 					continue;
-				if ((queue[qt] / cols + r2) < 0 || (queue[qt] / cols + r2) >= rows ||
-					(queue[qt] % cols + c2) < 0 || (queue[qt] % cols + c2) >= cols)
+				if ((queue[qt] / cols + r2) < 0 || (queue[qt] / cols + r2) >= rows - 3 ||
+					(queue[qt] % cols + c2) < 0 || (queue[qt] % cols + c2) >= cols - 3)
 					continue;
 				if (labels[(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2] != paint_over_label)
 					continue;
 
 				/* test criteria to join region */
-				if (abs((int)(image[(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2])
-					- average) > 50)
-					continue;
+				//if (abs((int)(image[(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2]) - average) > 50)
+				//	continue;
 
-				dot_product = (average[x] * C[x][curr_pos]) + (average[y] * C[y][curr_pos]) + (average[z] * C[z][curr_pos]);
-				mag1 = sqrt(SQR(average[x]) + SQR(average[y]) + SQR(average[z]));
-				mag2 = sqrt(SQR(C[x][(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2]) + 
-							SQR(C[y][(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2]) + 
-							SQR(C[z][(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2]));
+				dotProduct = (average[x] * C[x][(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2]) +
+					(average[y] * C[y][(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2]) +
+					(average[z] * C[z][(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2]);
+				dist1 = sqrt(SQR(average[x]) + SQR(average[y]) + SQR(average[z]));
+				dist2 = sqrt(SQR(C[x][(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2]) +
+					SQR(C[y][(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2]) +
+					SQR(C[z][(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2]));
 
-				angle = acos(dot_product / (mag1 * mag2));
-
-				if (angle > ANGLE_THRESH)
+				if (acos(dotProduct / (dist1 * dist2)) > 0.75)
 					continue;
 
 				labels[(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2] = new_label;
@@ -325,6 +368,11 @@ void RegionGrow(unsigned char* image,	/* image data */
 				total[z] += C[z][(queue[qt] / cols + r2) * cols + queue[qt] % cols + c2];
 
 				(*count)++;
+
+				average[x] = total[x] / (*count);
+				average[y] = total[y] / (*count);
+				average[z] = total[z] / (*count);
+
 				queue[qh] = (queue[qt] / cols + r2) * cols + queue[qt] % cols + c2;
 				qh = (qh + 1) % MAX_QUEUE;
 				if (qh == qt)

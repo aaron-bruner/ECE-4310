@@ -10,4 +10,4 @@ clean:
 	rm -f lab8 lab8.o 
 
 run:
-	./lab8
+	./lab8 chair-range.ppm
